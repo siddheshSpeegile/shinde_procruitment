@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-shinde_procurement}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # No auto-restore folder - restore your schema dump the same way
+      # you always have (pg_restore / pgAdmin), just pointed at
+      # localhost:5432 once this container is up. See DOCKER_README.md.
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-shinde_procurement}
+    volumes:
+      # Uploaded product photos persist across rebuilds/restarts instead
+      # of living only inside the container's writable layer.
+      - backend_uploads:/app/uploads/products
+    ports:
+      - "5000:5000"
+
+  # Optional: runs the Expo dev server in a container so a teammate can
+  # get the QR code with zero local Node/Expo setup - just
+  # `docker compose up frontend` and scan what appears in the logs.
+  # --tunnel is used deliberately instead of the default LAN mode:
+  # LAN mode won't work here because the container's network is behind
+  # Docker's NAT, unreachable from a phone on the host's Wi-Fi. Tunnel
+  # mode routes through Expo's own relay instead, so it works regardless
+  # of host networking - at the cost of being slower and requiring
+  # internet access.
+  frontend:
+    image: node:20-bullseye
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      # Without this, `npm install` below would write Linux binaries
+      # into your host's node_modules folder (bind-mounted from
+      # ./frontend), corrupting it for your normal Windows
+      # `npx expo start`. This named volume shadows just that one
+      # subfolder, keeping the container's node_modules separate.
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "8081:8081"
+    environment:
+      # Point the app at the backend from the PHONE's perspective, not
+      # the container's - phones can't resolve the "backend" service
+      # name, so this must be your PC's actual LAN IP. Set it in .env.
+      EXPO_PUBLIC_API_URL: ${API_URL:-http://192.168.1.100:5000/api}
+    command: sh -c "npm install && npx expo start --tunnel"
+    stdin_open: true
+    tty: true
+
+volumes:
+  db_data:
+  backend_uploads:
+  frontend_node_modules:
