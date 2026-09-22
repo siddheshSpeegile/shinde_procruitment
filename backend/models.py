@@ -262,6 +262,33 @@ class ProductPhoto:
         ProductPhoto.add_many(product_id, photo_urls)
 
 
+class Suggestions:
+    """Distinct existing values for certain free-text fields, powering
+    autocomplete suggestions on screens where there's no dedicated
+    lookup table (unlike Category/Color). Each field name maps to one
+    fixed, hand-written query - never built dynamically from the
+    request, so there's no SQL injection surface here regardless of
+    what a caller passes as the field name."""
+
+    _QUERIES = {
+        'product_remarks': "SELECT DISTINCT remarks FROM product WHERE remarks IS NOT NULL AND remarks != '' ORDER BY remarks",
+        'customer_product_id': "SELECT DISTINCT customer_product_id FROM product WHERE customer_product_id IS NOT NULL AND customer_product_id != '' ORDER BY customer_product_id",
+        'order_remarks': "SELECT DISTINCT remarks FROM purchase_order WHERE remarks IS NOT NULL AND remarks != '' ORDER BY remarks",
+    }
+
+    @staticmethod
+    def get(field):
+        """Returns a plain list of strings, or None if `field` isn't one
+        of the known whitelisted keys above."""
+        query = Suggestions._QUERIES.get(field)
+        if not query:
+            return None
+        rows = db.execute_query(query)
+        if rows is None:
+            return None
+        return [list(r.values())[0] for r in rows]
+
+
 class Product:
     """Product model"""
 

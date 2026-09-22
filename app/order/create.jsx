@@ -344,19 +344,20 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";
+import { apiFetch } from "../../api/config";
+import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 
 // Formats a Date object as YYYY-MM-DD using its LOCAL calendar date -
@@ -459,6 +460,15 @@ export default function CreatePurchaseOrderScreen() {
   const [showDeliveryPicker, setShowDeliveryPicker] = useState(false);
   const [remarks, setRemarks] = useState("");
   const [error, setError] = useState("");
+  const [remarkOptions, setRemarkOptions] = useState([]);
+
+  useEffect(() => {
+    apiFetch("/suggestions/order_remarks")
+      .then((data) => {
+        if (data.success) setRemarkOptions(data.data || []);
+      })
+      .catch((err) => console.error("Failed to fetch remark suggestions", err));
+  }, []);
 
   const formattedDate = toLocalDateString(poDate);
   const formattedDeliveryDate = toLocalDateString(expectedDeliveryDate);
@@ -509,6 +519,7 @@ export default function CreatePurchaseOrderScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 20,
@@ -608,12 +619,11 @@ export default function CreatePurchaseOrderScreen() {
           }
           label="Remarks"
         />
-        <TextInput
-          style={styles.textInput}
-          placeholder="Enter Remarks...."
-          placeholderTextColor="#8a7c78"
+        <AutocompleteInput
           value={remarks}
-          onChangeText={setRemarks}
+          onChange={setRemarks}
+          placeholder="Enter Remarks...."
+          suggestions={remarkOptions}
         />
 
         <View style={styles.productsHeaderRow}>

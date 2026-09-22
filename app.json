@@ -7,7 +7,8 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.siddheshdev.shindeprocurementmobile"
     },
     "experiments": {
       "reactCompiler": true,
@@ -42,6 +43,12 @@
     "web": {
       "favicon": "./assets/images/favicon.png",
       "output": "static"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1d7d2b71-d6c4-4791-a0bc-249c21998e91"
+      }
     }
   }
 }

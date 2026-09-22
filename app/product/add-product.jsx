@@ -3,7 +3,7 @@ import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   ScrollView,
@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { API_BASE_URL, apiFetch } from "../../api/config";
+import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
 
@@ -35,6 +36,25 @@ export default function AddProductScreen() {
   const [saving, setSaving] = useState(false);
 
   const MAX_PHOTOS = 4;
+
+  const [customerIdOptions, setCustomerIdOptions] = useState([]);
+  const [remarkOptions, setRemarkOptions] = useState([]);
+
+  useEffect(() => {
+    apiFetch("/suggestions/customer_product_id")
+      .then((data) => {
+        if (data.success) setCustomerIdOptions(data.data || []);
+      })
+      .catch((err) =>
+        console.error("Failed to fetch customer ID suggestions", err),
+      );
+
+    apiFetch("/suggestions/product_remarks")
+      .then((data) => {
+        if (data.success) setRemarkOptions(data.data || []);
+      })
+      .catch((err) => console.error("Failed to fetch remark suggestions", err));
+  }, []);
 
   const validate = () => {
     if (!vendorProductId.trim() || !productName.trim() || photos.length === 0) {
@@ -242,6 +262,7 @@ export default function AddProductScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 24,
@@ -279,6 +300,7 @@ export default function AddProductScreen() {
           value={customerProductId}
           onChange={setCustomerProductId}
           placeholder="Enter Customer Product ID...."
+          suggestions={customerIdOptions}
           icon={
             <>
               <Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -383,6 +405,7 @@ export default function AddProductScreen() {
           value={remark}
           onChange={setRemark}
           placeholder="Enter Remark...."
+          suggestions={remarkOptions}
           icon={
             <Path d="M4 19v-3.5L15 4.5a1.5 1.5 0 0 1 2 0l1.5 1.5a1.5 1.5 0 0 1 0 2L8 19H4Z" />
           }
@@ -426,6 +449,7 @@ function FormField({
   placeholder,
   icon,
   keyboardType,
+  suggestions,
 }) {
   return (
     <View style={{ gap: 10 }}>
@@ -449,14 +473,23 @@ function FormField({
           {label} {required && <Text style={{ color: "#d0342c" }}>*</Text>}
         </Text>
       </View>
-      <TextInput
-        style={styles.textInput}
-        placeholder={placeholder}
-        placeholderTextColor="#8a7c78"
-        value={value}
-        onChangeText={onChange}
-        keyboardType={keyboardType}
-      />
+      {suggestions ? (
+        <AutocompleteInput
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          suggestions={suggestions}
+        />
+      ) : (
+        <TextInput
+          style={styles.textInput}
+          placeholder={placeholder}
+          placeholderTextColor="#8a7c78"
+          value={value}
+          onChangeText={onChange}
+          keyboardType={keyboardType}
+        />
+      )}
     </View>
   );
 }

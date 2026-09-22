@@ -165,6 +165,9 @@ export default function LoginScreen() {
         value={username}
         onChangeText={setUsername}
         autoCapitalize="none"
+        autoComplete="off"
+        textContentType="none"
+        importantForAutofill="no"
       />
       <TextInput
         style={styles.input}
@@ -173,6 +176,9 @@ export default function LoginScreen() {
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="off"
+        textContentType="none"
+        importantForAutofill="no"
       />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

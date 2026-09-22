@@ -36,10 +36,6 @@ export default function AssignSizesScreen() {
   const [saving, setSaving] = useState(false);
   const [savingCart, setSavingCart] = useState(false);
 
-  useEffect(() => {
-    if (variant?.variant_id) fetchSizes();
-  }, [variant?.variant_id]);
-
   const fetchSizes = async () => {
     setLoading(true);
     try {
@@ -65,6 +61,10 @@ export default function AssignSizesScreen() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (variant?.variant_id) fetchSizes();
+  }, [variant?.variant_id]);
 
   const toggle = (sizeId) =>
     setSelected((prev) => ({ ...prev, [sizeId]: !prev[sizeId] }));
@@ -207,9 +207,7 @@ export default function AssignSizesScreen() {
           <ActivityIndicator style={{ marginTop: 30 }} color="#8a3230" />
         ) : sizes.length === 0 ? (
           <Text style={styles.emptyText}>
-            {mode === "order" && allInCart
-              ? "All available sizes for this variant are already in the cart."
-              : "No sizes have been assigned to this variant yet."}
+            No sizes have been assigned to this variant yet.
           </Text>
         ) : (
           <>

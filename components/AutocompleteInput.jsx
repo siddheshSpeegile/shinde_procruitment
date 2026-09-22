@@ -1,12 +1,17 @@
 import { useState } from "react";
 import {
-    FlatList,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+
+// Each option row is a fixed height so "show exactly 4, scroll for more"
+// is precise rather than approximate.
+const ROW_HEIGHT = 42;
+const VISIBLE_ROWS = 4;
 
 // A plain text input that shows a filtered dropdown of existing DB values
 // as the user types, so they can pick an existing one with a tap instead
@@ -37,6 +42,10 @@ export default function AutocompleteInput({
     filtered.length > 0 &&
     !(filtered.length === 1 && filtered[0].toLowerCase() === query);
 
+  // Only reserve scroll height for as many rows as actually exist, up to
+  // the 4-row cap - so a 2-suggestion list isn't padded with empty space.
+  const dropdownHeight = Math.min(filtered.length, VISIBLE_ROWS) * ROW_HEIGHT;
+
   return (
     <View>
       <TextInput
@@ -50,23 +59,27 @@ export default function AutocompleteInput({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
       />
       {showDropdown && (
-        <View style={styles.dropdown}>
-          <FlatList
-            data={filtered.slice(0, 6)}
-            keyExtractor={(item) => item}
+        <View style={[styles.dropdown, { height: dropdownHeight }]}>
+          <ScrollView
             keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            {filtered.map((item) => (
               <TouchableOpacity
+                key={item}
                 style={styles.option}
-                onPress={() => {
+                onPressIn={() => {
                   onChange(item);
                   setFocused(false);
                 }}
               >
-                <Text style={styles.optionText}>{item}</Text>
+                <Text style={styles.optionText} numberOfLines={1}>
+                  {item}
+                </Text>
               </TouchableOpacity>
-            )}
-          />
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>
@@ -90,11 +103,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#fff",
     marginTop: 4,
-    maxHeight: 190,
     overflow: "hidden",
   },
   option: {
-    paddingVertical: 10,
+    height: ROW_HEIGHT,
+    justifyContent: "center",
     paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#f0e9e6",

@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import Blueprint, request
 from werkzeug.utils import secure_filename
-from models import Product, ProductPhoto, Variant, Size, VariantSize, Vendor, Category, Gender, Pattern, Color, GstMaster
+from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, Gender, Pattern, Color, GstMaster
 from utils import success_response, error_response, validate_json
 
 ALLOWED_PHOTO_EXTENSIONS = {'png', 'jpg', 'jpeg'}
@@ -14,6 +14,20 @@ products_bp = Blueprint('products', __name__, url_prefix='/api')
 
 # ---------- Color ----------
  
+@products_bp.route('/suggestions/<field>', methods=['GET'])
+def get_suggestions(field):
+    """Autocomplete suggestions for a free-text field that has no
+    dedicated lookup table (unlike categories/colors). `field` must be
+    one of the whitelisted keys in Suggestions._QUERIES - anything else
+    returns a 400, never a dynamically-built query."""
+    values = Suggestions.get(field)
+
+    if values is None:
+        return error_response(f"Unknown suggestion field: {field}", 400)
+
+    return success_response(values, "Suggestions fetched successfully")
+
+
 @products_bp.route('/colors', methods=['GET'])
 def get_colors():
     colors = Color.get_all()

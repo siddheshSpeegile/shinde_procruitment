@@ -28,7 +28,7 @@ const LOCAL_IP = "10.154.245.172";
 // LOCAL_IP above for local `npx expo start` with no env var set.
 export const API_BASE_URL = __DEV__
   ? process.env.EXPO_PUBLIC_API_URL || `http://${LOCAL_IP}:5000/api`
-  : "https://your-deployed-backend.onrender.com/api"; // for production builds later
+  : "https://shinde-procruitment.onrender.com/api"; // for production builds later
 
 export async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {

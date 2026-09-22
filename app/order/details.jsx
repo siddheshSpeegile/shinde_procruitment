@@ -547,6 +547,13 @@ import Svg, { Path } from "react-native-svg";
 import { apiFetch } from "../../api/config";
 import NavBar from "../../components/NavBar";
 
+// Fixed widths (not flex) for the Cart Items table, matching column
+// order [Size, Qty, Gst %, Cost, MRP, Amount] - lets the table be wider
+// than the screen and scroll horizontally instead of squeezing every
+// column (especially Qty's two +/- buttons) into an equal flex share
+// that's too narrow to fit its own content.
+const COLUMN_WIDTHS = [56, 96, 64, 84, 72, 84];
+
 // Same generalization as order/create.jsx: accepts productsJson (one or
 // many products, each with one or many variants/sizes) so this single
 // screen serves both the direct single-variant flow and the cart flow.
@@ -923,84 +930,78 @@ export default function ProductDetailsScreen() {
           {isMultiProduct ? "Cart Items" : "Assigned Size"}
         </Text>
 
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            {(isMultiProduct
-              ? [
-                  "Product",
-                  "Size",
-                  "Qty",
-                  "Gst %",
-                  "Cost ₹",
-                  "MRP ₹",
-                  "Amount ₹",
-                ]
-              : ["Size", "Qty", "Gst %", "Cost ₹", "MRP ₹", "Amount ₹"]
-            ).map((h) => (
-              <Text
-                key={h}
-                style={[
-                  styles.tableHeaderText,
-                  isMultiProduct && { fontSize: 10 },
-                ]}
-              >
-                {h}
-              </Text>
-            ))}
-          </View>
-          {visibleRows.map((r) => {
-            const key = rowKey(r);
-            return (
-              <View key={key} style={styles.tableRow}>
-                {isMultiProduct && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              {["Size", "Qty", "Gst %", "Cost ₹", "MRP ₹", "Amount ₹"].map(
+                (h, i) => (
                   <Text
-                    style={[styles.tableCellStatic, { flex: 1.4 }]}
-                    numberOfLines={1}
+                    key={h}
+                    style={[
+                      styles.tableHeaderText,
+                      { width: COLUMN_WIDTHS[i] },
+                    ]}
                   >
-                    {r.code}
+                    {h}
                   </Text>
-                )}
-                <Text style={styles.tableCellSize}>{r.size_value}</Text>
-                <View style={styles.qtyCell}>
-                  <TouchableOpacity
-                    onPress={() => changeQty(key, -1)}
-                    style={styles.qtyBtn}
+                ),
+              )}
+            </View>
+            {visibleRows.map((r) => {
+              const key = rowKey(r);
+              return (
+                <View key={key} style={styles.tableRow}>
+                  <Text
+                    style={[styles.tableCellSize, { width: COLUMN_WIDTHS[0] }]}
                   >
-                    <Text style={styles.qtyBtnText}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.qtyValue}>{r.qty}</Text>
-                  <TouchableOpacity
-                    onPress={() => changeQty(key, 1)}
-                    style={styles.qtyBtn}
+                    {r.size_value}
+                  </Text>
+                  <View style={[styles.qtyCell, { width: COLUMN_WIDTHS[1] }]}>
+                    <TouchableOpacity
+                      onPress={() => changeQty(key, -1)}
+                      style={styles.qtyBtn}
+                    >
+                      <Text style={styles.qtyBtnText}>−</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.qtyValue}>{r.qty}</Text>
+                    <TouchableOpacity
+                      onPress={() => changeQty(key, 1)}
+                      style={styles.qtyBtn}
+                    >
+                      <Text style={styles.qtyBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={[styles.tableCellInput, { width: COLUMN_WIDTHS[2] }]}
+                    keyboardType="decimal-pad"
+                    value={String(r.gst)}
+                    onChangeText={(t) => updateField(key, "gst", t)}
+                  />
+                  <TextInput
+                    style={[styles.tableCellInput, { width: COLUMN_WIDTHS[3] }]}
+                    keyboardType="decimal-pad"
+                    value={String(r.cost)}
+                    onChangeText={(t) => updateField(key, "cost", t)}
+                  />
+                  <TextInput
+                    style={[styles.tableCellInput, { width: COLUMN_WIDTHS[4] }]}
+                    keyboardType="decimal-pad"
+                    value={String(r.mrp)}
+                    onChangeText={(t) => updateField(key, "mrp", t)}
+                  />
+                  <Text
+                    style={[
+                      styles.tableCellAmount,
+                      { width: COLUMN_WIDTHS[5] },
+                    ]}
                   >
-                    <Text style={styles.qtyBtnText}>+</Text>
-                  </TouchableOpacity>
+                    {rowAmount(r).toLocaleString("en-IN")}
+                  </Text>
                 </View>
-                <TextInput
-                  style={styles.tableCellInput}
-                  keyboardType="decimal-pad"
-                  value={String(r.gst)}
-                  onChangeText={(t) => updateField(key, "gst", t)}
-                />
-                <TextInput
-                  style={styles.tableCellInput}
-                  keyboardType="decimal-pad"
-                  value={String(r.cost)}
-                  onChangeText={(t) => updateField(key, "cost", t)}
-                />
-                <TextInput
-                  style={styles.tableCellInput}
-                  keyboardType="decimal-pad"
-                  value={String(r.mrp)}
-                  onChangeText={(t) => updateField(key, "mrp", t)}
-                />
-                <Text style={styles.tableCellAmount}>
-                  {rowAmount(r).toLocaleString("en-IN")}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        </ScrollView>
 
         <Text style={styles.sectionTitle}>
           {isMultiProduct ? "Order Summary" : "Variant Summary"}
@@ -1008,21 +1009,18 @@ export default function ProductDetailsScreen() {
         <View style={styles.summaryRow}>
           <SummaryCard
             bg="#fbe3df"
-            iconBg="#8a3230"
             label="Total Items"
             value={totalItems}
             color="#8a3230"
           />
           <SummaryCard
             bg="#f6e9d2"
-            iconBg="#c9832f"
             label="Total Qty"
             value={totalQty}
             color="#c9832f"
           />
           <SummaryCard
             bg="#d9ecd6"
-            iconBg="#2f8a3d"
             label="Total Amount"
             value={`₹${totalAmount.toLocaleString("en-IN")}`}
             color="#2f8a3d"
@@ -1092,11 +1090,10 @@ function InfoCell({ label, value, border }) {
   );
 }
 
-function SummaryCard({ bg, iconBg, label, value, color }) {
+function SummaryCard({ bg, label, value, color }) {
   return (
     <View style={[styles.summaryCard, { backgroundColor: bg }]}>
-      <View style={[styles.summaryIconWrap, { backgroundColor: iconBg }]} />
-      <View>
+      <View style={styles.summaryTextWrap}>
         <Text style={styles.summaryLabel}>{label}</Text>
         <Text style={[styles.summaryValue, { color }]}>{value}</Text>
       </View>
@@ -1232,7 +1229,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   tableHeaderText: {
-    flex: 1,
     color: "#fff",
     fontSize: 11.5,
     fontWeight: "800",
@@ -1247,21 +1243,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   tableCellSize: {
-    flex: 1,
     fontSize: 15,
     fontWeight: "800",
     color: "#1c1210",
     textAlign: "center",
   },
   tableCellStatic: {
-    flex: 1,
     fontSize: 13,
     fontWeight: "700",
     color: "#1c1210",
     textAlign: "center",
   },
   tableCellInput: {
-    flex: 1,
     fontSize: 13,
     fontWeight: "700",
     color: "#1c1210",
@@ -1274,14 +1267,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#faf7f5",
   },
   tableCellAmount: {
-    flex: 1,
     fontSize: 14,
     fontWeight: "800",
     color: "#8a3230",
     textAlign: "center",
   },
   qtyCell: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1314,12 +1305,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
   },
-  summaryIconWrap: { width: 30, height: 30, borderRadius: 15 },
-  summaryLabel: { fontSize: 11, color: "#5c4a48" },
+  summaryTextWrap: { flex: 1, minWidth: 0, alignItems: "center" },
+  summaryLabel: { fontSize: 11.5, color: "#5c4a48", textAlign: "center" },
   summaryValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "800",
     textDecorationLine: "underline",
+    marginTop: 2,
   },
   error: { color: "#b3261e", fontSize: 13 },
   actionsRow: { flexDirection: "row", gap: 12 },

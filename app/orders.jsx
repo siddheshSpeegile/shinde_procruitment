@@ -31,16 +31,6 @@ function toLocalDateString(date) {
   return `${year}-${month}-${day}`;
 }
 
-// Badge color follows the computed delivery state the backend sends -
-// never the raw order status - so it always agrees with the message text.
-function deliveryBadgeStyle(state) {
-  if (state === "delayed")
-    return { bg: "#fde3e1", text: "#c23b32", dot: "#c23b32" };
-  if (state === "delivered")
-    return { bg: "#e3f6e6", text: "#1f8a3d", dot: "#1f8a3d" };
-  return { bg: "#fbe6c4", text: "#a9691f", dot: "#e0a530" }; // pending / on time
-}
-
 // Serves BOTH the global bottom-nav Orders screen (no vendorJson param -
 // unchanged from before) AND the vendor-scoped Orders entry inside a
 // Vendor Workspace (vendorJson passed in) - one screen, not a duplicate.
@@ -55,10 +45,6 @@ export default function OrdersListScreen() {
   const [dateTo, setDateTo] = useState(null);
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
-
-  useEffect(() => {
-    fetchOrders();
-  }, [vendor?.vendor_id, filter, dateFrom, dateTo]);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -77,16 +63,9 @@ export default function OrdersListScreen() {
     setLoading(false);
   };
 
-  const markDelivered = async (poId) => {
-    try {
-      const data = await apiFetch(`/orders/${poId}/mark-delivered`, {
-        method: "PATCH",
-      });
-      if (data.success) fetchOrders();
-    } catch (err) {
-      console.error("Failed to mark order delivered", err);
-    }
-  };
+  useEffect(() => {
+    fetchOrders();
+  }, [vendor?.vendor_id, filter, dateFrom, dateTo]);
 
   const filteredOrders = orders;
 
@@ -252,74 +231,51 @@ export default function OrdersListScreen() {
           ListEmptyComponent={
             <Text style={styles.emptyText}>No orders found.</Text>
           }
-          renderItem={({ item }) => {
-            const st = deliveryBadgeStyle(item.delivery.state);
-            return (
-              <View style={styles.orderCard}>
-                <Image source={{ uri: item.logo }} style={styles.orderLogo} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.orderPo}>{item.po}</Text>
-                  <Text style={styles.orderBrand}>{item.brand}</Text>
-                  <View style={styles.orderDateRow}>
-                    <Svg
-                      width={12}
-                      height={12}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#8a3230"
-                      strokeWidth={2}
-                    >
-                      <Rect x="3" y="5" width="18" height="16" rx="2" />
-                      <Path d="M3 10h18M8 3v4M16 3v4" />
-                    </Svg>
-                    <Text style={styles.orderDate}>Placed: {item.date}</Text>
-                  </View>
-                  {item.delivery.state !== "delivered" &&
-                    item.expected_delivery_date && (
-                      <View style={styles.orderDateRow}>
-                        <Svg
-                          width={12}
-                          height={12}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#a9691f"
-                          strokeWidth={2}
-                        >
-                          <Rect x="3" y="5" width="18" height="16" rx="2" />
-                          <Path d="M3 10h18M8 3v4M16 3v4" />
-                        </Svg>
-                        <Text style={[styles.orderDate, { color: "#a9691f" }]}>
-                          Due: {item.expected_delivery_date}
-                        </Text>
-                      </View>
-                    )}
-                  {item.delivery.state !== "delivered" && (
-                    <TouchableOpacity
-                      onPress={() => markDelivered(item.id)}
-                      style={styles.markDeliveredBtn}
-                    >
-                      <Text style={styles.markDeliveredText}>
-                        Mark as Delivered
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <View style={{ alignItems: "flex-end", gap: 6 }}>
-                  <Text style={styles.orderPrice}>{item.price}</Text>
-                  <View
-                    style={[styles.statusBadge, { backgroundColor: st.bg }]}
+          renderItem={({ item }) => (
+            <View style={styles.orderCard}>
+              <Image source={{ uri: item.logo }} style={styles.orderLogo} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.orderPo}>{item.po}</Text>
+                <Text style={styles.orderBrand}>{item.brand}</Text>
+                <View style={styles.orderDateRow}>
+                  <Svg
+                    width={12}
+                    height={12}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#8a3230"
+                    strokeWidth={2}
                   >
-                    <View
-                      style={[styles.statusDot, { backgroundColor: st.dot }]}
-                    />
-                    <Text style={[styles.statusText, { color: st.text }]}>
-                      {item.delivery.message}
-                    </Text>
-                  </View>
+                    <Rect x="3" y="5" width="18" height="16" rx="2" />
+                    <Path d="M3 10h18M8 3v4M16 3v4" />
+                  </Svg>
+                  <Text style={styles.orderDate}>Placed: {item.date}</Text>
                 </View>
+                {item.delivery.state !== "delivered" &&
+                  item.expected_delivery_date && (
+                    <View style={styles.orderDateRow}>
+                      <Svg
+                        width={12}
+                        height={12}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#a9691f"
+                        strokeWidth={2}
+                      >
+                        <Rect x="3" y="5" width="18" height="16" rx="2" />
+                        <Path d="M3 10h18M8 3v4M16 3v4" />
+                      </Svg>
+                      <Text style={[styles.orderDate, { color: "#a9691f" }]}>
+                        Due: {item.expected_delivery_date}
+                      </Text>
+                    </View>
+                  )}
               </View>
-            );
-          }}
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={styles.orderPrice}>{item.price}</Text>
+              </View>
+            </View>
+          )}
         />
       )}
 
@@ -399,13 +355,6 @@ const styles = StyleSheet.create({
   },
   dateFilterText: { fontSize: 12, fontWeight: "600", color: "#8a3230" },
   clearDateText: { fontSize: 12, fontWeight: "600", color: "#8a7c78" },
-  markDeliveredBtn: { marginTop: 6, alignSelf: "flex-start" },
-  markDeliveredText: {
-    fontSize: 11.5,
-    fontWeight: "700",
-    color: "#8a3230",
-    textDecorationLine: "underline",
-  },
   pill: {
     borderWidth: 1.5,
     borderRadius: 20,
@@ -449,14 +398,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#1c1210",
   },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontSize: 10.5, fontWeight: "600" },
 });

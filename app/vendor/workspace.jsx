@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { apiFetch } from "../../api/config";
 import NavBar from "../../components/NavBar";
+import RefreshButton from "../../components/RefreshButton";
 
 export default function VendorWorkspaceScreen() {
   const router = useRouter();
@@ -25,10 +26,6 @@ export default function VendorWorkspaceScreen() {
     orders: 0,
     cart: 0,
   });
-
-  useEffect(() => {
-    if (vendor?.vendor_id) loadStats();
-  }, [vendor?.vendor_id]);
 
   const loadStats = async () => {
     setLoading(true);
@@ -77,6 +74,10 @@ export default function VendorWorkspaceScreen() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (vendor?.vendor_id) loadStats();
+  }, [vendor?.vendor_id]);
+
   const goCatalogue = () =>
     router.push({ pathname: "/product/catalogue", params: { vendorJson } });
   const goAddProduct = () =>
@@ -87,24 +88,27 @@ export default function VendorWorkspaceScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <LinearGradient
-            colors={["#7a2f2b", "#c98f86"]}
-            style={styles.backBtn}
-          >
-            <Svg
-              width={18}
-              height={18}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#fff"
-              strokeWidth={2.6}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <LinearGradient
+              colors={["#7a2f2b", "#c98f86"]}
+              style={styles.backBtn}
             >
-              <Path d="M15 18l-6-6 6-6" />
-            </Svg>
-          </LinearGradient>
-        </TouchableOpacity>
-        <Text style={styles.title}>Vendor Workspace</Text>
+              <Svg
+                width={18}
+                height={18}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#fff"
+                strokeWidth={2.6}
+              >
+                <Path d="M15 18l-6-6 6-6" />
+              </Svg>
+            </LinearGradient>
+          </TouchableOpacity>
+          <Text style={styles.title}>Vendor Workspace</Text>
+        </View>
+        <RefreshButton onPress={loadStats} refreshing={loading} />
       </View>
 
       <ScrollView
@@ -327,7 +331,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 14,

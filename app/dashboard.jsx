@@ -14,16 +14,6 @@ import { apiFetch } from "../api/config";
 import NavBar from "../components/NavBar";
 import RefreshButton from "../components/RefreshButton";
 
-// Recent Purchases only ever shows pending (not-yet-delivered) orders, so
-// the filter is simply: is it on schedule, or is it running late? Both
-// come straight from the backend's computed `delivery.state`, never
-// derived from the raw order status here.
-function deliveryBadgeStyle(state) {
-  if (state === "delayed")
-    return { badgeBg: "#fde3e1", badgeText: "#c23b32", dotColor: "#c23b32" };
-  return { badgeBg: "#e3f6e6", badgeText: "#1f8a3d", dotColor: "#1f8a3d" }; // "pending" (on time)
-}
-
 export default function DashboardScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -36,10 +26,6 @@ export default function DashboardScreen() {
   const [allOrders, setAllOrders] = useState([]);
   const [orders, setOrders] = useState([]);
   const [filter, setFilter] = useState("all");
-
-  useEffect(() => {
-    fetchDashboard();
-  }, []);
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -62,6 +48,10 @@ export default function DashboardScreen() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    fetchDashboard();
+  }, []);
 
   const applyFilter = (key) => {
     setFilter(key);
@@ -201,74 +191,50 @@ export default function DashboardScreen() {
             <Text style={styles.emptyText}>No orders found.</Text>
           )}
           {!loading &&
-            orders.map((order) => {
-              const st = deliveryBadgeStyle(order.delivery.state);
-              return (
-                <View key={order.id} style={styles.orderCard}>
-                  <Image
-                    source={{ uri: order.logo }}
-                    style={styles.orderLogo}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.orderPo}>{order.po}</Text>
-                    <Text style={styles.orderBrand}>{order.brand}</Text>
+            orders.map((order) => (
+              <View key={order.id} style={styles.orderCard}>
+                <Image source={{ uri: order.logo }} style={styles.orderLogo} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.orderPo}>{order.po}</Text>
+                  <Text style={styles.orderBrand}>{order.brand}</Text>
+                  <View style={styles.orderDateRow}>
+                    <Svg
+                      width={12}
+                      height={12}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#8a3230"
+                      strokeWidth={2}
+                    >
+                      <Rect x="3" y="5" width="18" height="16" rx="2" />
+                      <Path d="M3 10h18M8 3v4M16 3v4" />
+                    </Svg>
+                    <Text style={styles.orderDate}>Placed: {order.date}</Text>
+                  </View>
+                  {order.expected_delivery_date && (
                     <View style={styles.orderDateRow}>
                       <Svg
                         width={12}
                         height={12}
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke="#8a3230"
+                        stroke="#a9691f"
                         strokeWidth={2}
                       >
                         <Rect x="3" y="5" width="18" height="16" rx="2" />
                         <Path d="M3 10h18M8 3v4M16 3v4" />
                       </Svg>
-                      <Text style={styles.orderDate}>Placed: {order.date}</Text>
-                    </View>
-                    {order.expected_delivery_date && (
-                      <View style={styles.orderDateRow}>
-                        <Svg
-                          width={12}
-                          height={12}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#a9691f"
-                          strokeWidth={2}
-                        >
-                          <Rect x="3" y="5" width="18" height="16" rx="2" />
-                          <Path d="M3 10h18M8 3v4M16 3v4" />
-                        </Svg>
-                        <Text style={[styles.orderDate, { color: "#a9691f" }]}>
-                          Due: {order.expected_delivery_date}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 6 }}>
-                    <Text style={styles.orderPrice}>{order.price}</Text>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        { backgroundColor: st.badgeBg },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.statusDot,
-                          { backgroundColor: st.dotColor },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.statusText, { color: st.badgeText }]}
-                      >
-                        {order.delivery.message}
+                      <Text style={[styles.orderDate, { color: "#a9691f" }]}>
+                        Due: {order.expected_delivery_date}
                       </Text>
                     </View>
-                  </View>
+                  )}
                 </View>
-              );
-            })}
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={styles.orderPrice}>{order.price}</Text>
+                </View>
+              </View>
+            ))}
         </View>
       </ScrollView>
 
@@ -423,14 +389,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#1c1210",
   },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontSize: 10.5, fontWeight: "600" },
 });
