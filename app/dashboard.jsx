@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -11,12 +12,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { apiFetch } from "../api/config";
+import { clearSession, getSession } from "../api/session";
 import NavBar from "../components/NavBar";
 import RefreshButton from "../components/RefreshButton";
+import SidebarDrawer from "../components/SidebarDrawer";
 
 export default function DashboardScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [stats, setStats] = useState({
     vendors: "–",
     products: "–",
@@ -37,7 +42,7 @@ export default function DashboardScreen() {
           vendors: String(d.vendors_count ?? 0),
           products: String(d.products_count ?? 0),
           orders: String(d.orders_count ?? 0),
-          amount: `₹${Number(d.pending_amount || 0).toLocaleString("en-IN")}`,
+          amount: `₹${Number(d.order_amount || 0).toLocaleString("en-IN")}`,
         });
         const fetched = d.recent_orders || [];
         setAllOrders(fetched);
@@ -51,7 +56,19 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     fetchDashboard();
+    getSession().then(setCurrentUser);
   }, []);
+
+  const handleLogout = async () => {
+    setSidebarVisible(false);
+    await clearSession();
+    router.replace("/login");
+  };
+
+  const handleHelp = () => {
+    setSidebarVisible(false);
+    Alert.alert("Help", "For support, please contact your admin.");
+  };
 
   const applyFilter = (key) => {
     setFilter(key);
@@ -67,17 +84,19 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Svg
-            width={26}
-            height={26}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#1c1210"
-            strokeWidth={2}
-          >
-            <Circle cx="12" cy="8" r="4" />
-            <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
-          </Svg>
+          <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+            <Svg
+              width={26}
+              height={26}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#1c1210"
+              strokeWidth={2}
+            >
+              <Circle cx="12" cy="8" r="4" />
+              <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+            </Svg>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Dashboard</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <RefreshButton onPress={fetchDashboard} refreshing={loading} />
@@ -139,7 +158,7 @@ export default function DashboardScreen() {
             bg="#c9e4c8"
             iconBg="#278a3e"
             value={stats.amount}
-            label="Due Payment"
+            label="Order Amount"
             fontSize={19}
             icon={
               <>
@@ -237,6 +256,14 @@ export default function DashboardScreen() {
             ))}
         </View>
       </ScrollView>
+
+      <SidebarDrawer
+        visible={sidebarVisible}
+        onClose={() => setSidebarVisible(false)}
+        user={currentUser}
+        onHelp={handleHelp}
+        onLogout={handleLogout}
+      />
 
       <NavBar active="home" vendor={null} />
     </SafeAreaView>

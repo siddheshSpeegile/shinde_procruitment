@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   StyleSheet,
@@ -25,10 +26,6 @@ export default function SelectVendorScreen() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showStatusFilter, setShowStatusFilter] = useState(false);
 
-  useEffect(() => {
-    fetchVendors();
-  }, []);
-
   const fetchVendors = async () => {
     setLoading(true);
     try {
@@ -40,6 +37,10 @@ export default function SelectVendorScreen() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    fetchVendors();
+  }, []);
+
   const filtered = vendors
     .filter((v) => (statusFilter === "all" ? true : v.status === statusFilter))
     .filter((v) =>
@@ -47,6 +48,13 @@ export default function SelectVendorScreen() {
     );
 
   const openVendor = (vendor) => {
+    if (vendor.status === "inactive") {
+      Alert.alert(
+        "Inactive Vendor",
+        "This vendor is inactive. Please contact your admin.",
+      );
+      return;
+    }
     router.push({
       pathname: "/vendor/workspace",
       params: { vendorJson: JSON.stringify(vendor) },

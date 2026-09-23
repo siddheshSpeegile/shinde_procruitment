@@ -15,13 +15,15 @@ def get_dashboard():
 
     KPI definitions (all computed live on every request - nothing is
     cached or stored, so they update automatically the moment an order's
-    status or payment_status changes):
+    status changes):
     - total_spend: this month's total across ALL orders (hero card, unchanged)
     - vendors_count: vendors with at least one PENDING order
     - products_count: distinct products on at least one PENDING order
     - orders_count: total PENDING orders (not scoped to this month)
-    - pending_amount: total across all UNPAID orders (any month, any
-      delivery status - payment and delivery are independent)
+    - order_amount: total value of PENDING (not yet delivered) orders -
+      an order's amount drops out of this sum the moment it's marked
+      delivered, regardless of payment_status. (Renamed from
+      pending_amount / "Due Payment" - it now tracks delivery, not payment.)
 
     ASSUMPTIONS (please verify against your actual schema in pgAdmin):
     - vendor table has: vendor_id, vendor_name, status
@@ -73,20 +75,21 @@ def get_dashboard():
         orders_count_query = "SELECT COUNT(*) as count FROM purchase_order WHERE status != 'delivered'"
         orders_result = db.execute_query(orders_count_query)
         orders_count = orders_result[0]['count'] if orders_result else 0
-
-        # --- Pending payment amount: total across every order still
-        # marked unpaid, regardless of delivery status - paying and
-        # delivering are separate, independently-tracked events. Not
-        # scoped to this month either - it's an outstanding balance, not
-        # a monthly figure. ---
-        pending_amount_query = """
-        SELECT COALESCE(SUM(psd.amount), 0) as pending_amount
+        # --- Order amount: total value of orders still PENDING (not
+        # delivered) - matches the same "not yet delivered" definition
+        # used for the Vendors/Products/Orders KPIs above, so all 4 KPI
+        # cards move together consistently. An order's amount drops out
+        # of this sum the instant it's marked delivered - independent of
+        # payment_status now, not tied to it like the old "Due Payment"
+        # version was. ---
+        order_amount_query = """
+        SELECT COALESCE(SUM(psd.amount), 0) as order_amount
         FROM po_size_detail psd
         JOIN purchase_order po ON psd.po_id = po.po_id
-        WHERE po.payment_status = 'unpaid'
+        WHERE po.status != 'delivered'
         """
-        pending_amount_result = db.execute_query(pending_amount_query)
-        pending_amount = float(pending_amount_result[0]['pending_amount']) if pending_amount_result else 0
+        order_amount_result = db.execute_query(order_amount_query)
+        order_amount = float(order_amount_result[0]['order_amount']) if order_amount_result else 0
 
         # --- Recent PENDING orders (last 50, newest first) ---
         # Delivered orders don't belong on this "what still needs my
@@ -132,7 +135,7 @@ def get_dashboard():
                 'vendors_count': vendors_count,
                 'products_count': products_count,
                 'orders_count': orders_count,
-                'pending_amount': pending_amount,
+                'order_amount': order_amount,
                 'recent_orders': recent_orders
             }
         }), 200

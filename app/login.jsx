@@ -120,6 +120,7 @@ import {
   View,
 } from "react-native";
 import { apiFetch } from "../api/config";
+import { saveSession } from "../api/session";
 
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
@@ -137,6 +138,7 @@ export default function LoginScreen() {
         body: JSON.stringify({ username, password }),
       });
       if (data.success) {
+        await saveSession(data.data);
         router.replace("/dashboard");
       } else {
         setError(data.message || "Login failed");

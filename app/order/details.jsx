@@ -552,7 +552,7 @@ import NavBar from "../../components/NavBar";
 // than the screen and scroll horizontally instead of squeezing every
 // column (especially Qty's two +/- buttons) into an equal flex share
 // that's too narrow to fit its own content.
-const COLUMN_WIDTHS = [56, 96, 64, 84, 72, 84];
+const COLUMN_WIDTHS = [56, 96, 64, 84, 72, 96];
 
 // Same generalization as order/create.jsx: accepts productsJson (one or
 // many products, each with one or many variants/sizes) so this single
@@ -933,7 +933,7 @@ export default function ProductDetailsScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={true}>
           <View style={styles.table}>
             <View style={styles.tableHeader}>
-              {["Size", "Qty", "Gst %", "Cost ₹", "MRP ₹", "Amount ₹"].map(
+              {["Size", "Qty", "Gst %", "Cost ₹", "MRP ₹", "Total Cost ₹"].map(
                 (h, i) => (
                   <Text
                     key={h}
