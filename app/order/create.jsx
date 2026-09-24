@@ -356,7 +356,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 
@@ -650,7 +650,10 @@ export default function CreatePurchaseOrderScreen() {
           >
             <View style={styles.productImgWrap}>
               {p.image && (
-                <Image source={{ uri: p.image }} style={styles.productImg} />
+                <Image
+                  source={{ uri: resolveImageUrl(p.image) }}
+                  style={styles.productImg}
+                />
               )}
             </View>
             <View style={{ gap: 8, flex: 1 }}>

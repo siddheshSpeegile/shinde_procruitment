@@ -1,12 +1,18 @@
-import os
-import uuid
-from flask import Blueprint, request
-from werkzeug.utils import secure_filename
+import io
+from flask import Blueprint, request, make_response
+from PIL import Image, ImageOps
 from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, Gender, Pattern, Color, GstMaster
 from utils import success_response, error_response, validate_json
 
-ALLOWED_PHOTO_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', 'products')
+MAX_PHOTOS = 4
+MAX_PHOTO_BYTES = 10 * 1024 * 1024  # per photo, as uploaded (before compression)
+# Stored photos are resized so their longest side is at most this many px,
+# then saved as JPEG at this quality - plenty for a phone screen, a fraction
+# of the size of the camera's original.
+PHOTO_MAX_SIDE = 1280
+PHOTO_JPEG_QUALITY = 80
+# Vendor logos only ever show as a small avatar, so they're stored smaller.
+VENDOR_LOGO_MAX_SIDE = 512
 
 products_bp = Blueprint('products', __name__, url_prefix='/api')
 
@@ -269,6 +275,49 @@ def update_vendor_status(vendor_id):
         return success_response({'vendor_id': vendor_id, 'status': status}, "Vendor status updated")
     else:
         return error_response("Failed to update vendor status - check the vendor_id exists", 404)
+
+
+@products_bp.route('/vendors/<int:vendor_id>/logo', methods=['PUT'])
+def upload_vendor_logo(vendor_id):
+    """Set or replace a vendor's logo. Body is multipart/form-data with the
+    image under 'logo' (JPG/PNG). The image is resized and stored in the DB
+    (vendor.logo_data column), and vendor.logo_url is pointed at
+    GET /api/vendors/<id>/logo. Returns the new logo_url."""
+    file = request.files.get('logo')
+    if not file:
+        return error_response("No logo image provided", 400)
+
+    data = file.read()
+    if len(data) > MAX_PHOTO_BYTES:
+        return error_response("Logo must be 10MB or smaller", 400)
+    if not _detect_image_mime(data):
+        return error_response("Only JPG and PNG files are allowed", 400)
+    try:
+        compressed, mime_type = _compress_photo(data, max_side=VENDOR_LOGO_MAX_SIDE)
+    except ValueError:
+        return error_response("The image is damaged or can't be read", 400)
+
+    logo_url = Vendor.update_logo(vendor_id, compressed, mime_type)
+    if not logo_url:
+        return error_response("Vendor not found", 404)
+
+    return success_response({'vendor_id': vendor_id, 'logo_url': logo_url}, "Vendor logo updated")
+
+
+@products_bp.route('/vendors/<int:vendor_id>/logo', methods=['GET'])
+def get_vendor_logo(vendor_id):
+    """Serves a vendor's logo bytes straight from the DB. The stored
+    logo_url carries a ?v=<timestamp> that changes on every upload, so
+    each version has its own URL and can be cached indefinitely - a new
+    logo is a new URL, never a stale cached image."""
+    logo = Vendor.get_logo(vendor_id)
+    if not logo:
+        return error_response("Logo not found", 404)
+
+    response = make_response(logo['data'])
+    response.headers['Content-Type'] = logo['mime_type'] or 'image/jpeg'
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return response
  
 
 # PRODUCTS
@@ -298,35 +347,145 @@ def get_product(product_id):
     
     return success_response(product, "Product fetched successfully")
 
+def _detect_image_mime(data):
+    """Identify JPEG/PNG from the file's own leading bytes rather than
+    trusting the filename or the client-sent Content-Type."""
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    return None
+
+
+def _compress_photo(data, max_side=PHOTO_MAX_SIDE):
+    """Shrink an uploaded photo before it's stored in the DB: fix phone
+    rotation (EXIF orientation), scale the longest side down to
+    max_side px, and re-encode as JPEG. Re-encoding also drops all
+    EXIF metadata, including the GPS location phones embed. PNGs become
+    JPEGs too, with any transparency flattened onto white.
+
+    Returns (jpeg_bytes, 'image/jpeg'). Raises ValueError if the bytes
+    can't be decoded as an image."""
+    try:
+        img = Image.open(io.BytesIO(data))
+        # For JPEGs, lets the decoder downscale while decoding - much less
+        # memory/CPU than decoding a full 12MP photo and resizing after.
+        img.draft('RGB', (max_side, max_side))
+        img = ImageOps.exif_transpose(img)
+
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            img = img.convert('RGBA')
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.getchannel('A'))
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        img.thumbnail((max_side, max_side), Image.LANCZOS)
+
+        out = io.BytesIO()
+        img.save(out, format='JPEG', quality=PHOTO_JPEG_QUALITY, optimize=True, progressive=True)
+        return out.getvalue(), 'image/jpeg'
+    except (OSError, Image.DecompressionBombError) as e:
+        raise ValueError(f"Could not read image: {e}")
+
+
 @products_bp.route('/products', methods=['POST'])
-@validate_json('vendor_id', 'v_prod_id', 'product_name', 'photo_url', 'price')
 def create_product():
-    """Create a new product. status defaults to 'active'.
+    """Create a new product together with its photos. status defaults to
+    'active'.
 
-    Accepts photo_urls: a list of 1-4 uploaded photo URLs (from repeated
-    calls to /products/upload-photo). The first one becomes photo_url on
-    the product itself (the 'cover' photo every existing screen already
-    shows), and the full list is saved to product_photo. photo_url alone
-    (no photo_urls) is still accepted for backward compatibility."""
-    data = request.get_json()
-    vendor_id = data.get('vendor_id')
-    v_prod_id = data.get('v_prod_id')
-    product_name = data.get('product_name')
-    photo_urls = data.get('photo_urls') or []
-    photo_url = data.get('photo_url') or (photo_urls[0] if photo_urls else None)
-    customer_product_id = data.get('customer_product_id', '')
-    remarks = data.get('remarks', '')
-    price = data.get('price', 0)
-    status = data.get('status', 'active')
+    Body is multipart/form-data (not JSON):
+      fields: vendor_id, v_prod_id, product_name, price,
+              customer_product_id?, remarks?, status?
+      files:  photos - 1 to MAX_PHOTOS image files (JPG/PNG), repeated
+              under the same 'photos' key, in display order
 
-    product_id = Product.create(vendor_id, v_prod_id, product_name, photo_url, customer_product_id, remarks, price, status)
+    Photo bytes are stored in product_photo.image_data (BYTEA) in the same
+    transaction as the product. The first photo becomes the cover
+    (product.photo_url), which - like each photo's photo_url - points at
+    GET /api/product-photos/<id>."""
+    form = request.form
+    for field in ('vendor_id', 'v_prod_id', 'product_name', 'price'):
+        if not form.get(field, '').strip():
+            return error_response(f"Missing required field: {field}", 400)
 
-    if product_id:
-        if photo_urls:
-            ProductPhoto.add_many(product_id, photo_urls)
-        return success_response({'product_id': product_id}, "Product created successfully", 201)
+    try:
+        price = float(form['price'])
+    except ValueError:
+        return error_response("price must be a number", 400)
+
+    try:
+        vendor_id = int(form['vendor_id'])
+    except ValueError:
+        return error_response("vendor_id must be a number", 400)
+    if not Vendor.get_by_id(vendor_id):
+        return error_response("Vendor not found", 404)
+
+    # Checked before any photo is processed - no point compressing photos
+    # for a product that's going to be rejected anyway.
+    v_prod_id = form['v_prod_id'].strip()
+    if Product.exists_for_vendor(vendor_id, v_prod_id):
+        return error_response("Product is already available", 409)
+
+    files = request.files.getlist('photos')
+    if not files:
+        return error_response("At least 1 product photo is required", 400)
+    if len(files) > MAX_PHOTOS:
+        return error_response(f"A product can have at most {MAX_PHOTOS} photos", 400)
+
+    photos = []
+    for file in files:
+        data = file.read()
+        if len(data) > MAX_PHOTO_BYTES:
+            return error_response("Each photo must be 10MB or smaller", 400)
+        if not _detect_image_mime(data):
+            return error_response("Only JPG and PNG files are allowed", 400)
+        try:
+            compressed, mime_type = _compress_photo(data)
+        except ValueError:
+            return error_response("One of the photos is damaged or can't be read", 400)
+        photos.append({'data': compressed, 'mime_type': mime_type})
+
+    result = Product.create_with_photos(
+        vendor_id,
+        v_prod_id,
+        form['product_name'].strip(),
+        photos,
+        form.get('customer_product_id', '').strip(),
+        form.get('remarks', '').strip(),
+        price,
+        form.get('status', 'active'),
+    )
+
+    if result:
+        return success_response(
+            {
+                'product_id': result['product_id'],
+                'photo_url': result['photo_urls'][0],
+                'photo_urls': result['photo_urls'],
+            },
+            "Product created successfully",
+            201,
+        )
     else:
         return error_response("Failed to create product", 500)
+
+
+@products_bp.route('/product-photos/<int:photo_id>', methods=['GET'])
+def get_product_photo_image(photo_id):
+    """Serves one photo's bytes straight from the DB - this is the URL
+    stored in photo_url, so <Image source={{ uri }}> loads it directly.
+    A photo's bytes never change (editing photos inserts new rows with new
+    ids), so clients may cache it indefinitely."""
+    image = ProductPhoto.get_image(photo_id)
+    if not image:
+        return error_response("Photo not found", 404)
+
+    response = make_response(image['data'])
+    response.headers['Content-Type'] = image['mime_type'] or 'image/jpeg'
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return response
 
 
 @products_bp.route('/products/<int:product_id>/photos', methods=['GET'])
@@ -360,30 +519,6 @@ def update_product(product_id):
         return success_response({'product_id': product_id}, "Product updated successfully")
     else:
         return error_response("Failed to update product", 500)
-
-@products_bp.route('/products/upload-photo', methods=['POST'])
-def upload_product_photo():
-    """Upload a product photo file, returns the URL to use as photo_url"""
-    if 'photo' not in request.files:
-        return error_response("No photo file provided", 400)
-
-    file = request.files['photo']
-    if file.filename == '':
-        return error_response("No photo selected", 400)
-
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in ALLOWED_PHOTO_EXTENSIONS:
-        return error_response("Only JPG and PNG files are allowed", 400)
-
-    try:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        filename = secure_filename(f"{uuid.uuid4().hex}.{ext}")
-        file.save(os.path.join(UPLOAD_DIR, filename))
-        photo_url = f"/uploads/products/{filename}"
-        return success_response({'photo_url': photo_url}, "Photo uploaded successfully")
-    except Exception as e:
-        print(f"Photo upload error: {e}")
-        return error_response("Failed to upload photo", 500)
 
 # VARIANTS
 

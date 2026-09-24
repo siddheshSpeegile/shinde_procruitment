@@ -56,19 +56,21 @@ export default function AddProductScreen() {
       .catch((err) => console.error("Failed to fetch remark suggestions", err));
   }, []);
 
+  // One specific message per problem, in the same order as the form, so
+  // the user knows exactly what to fix (not one combined catch-all).
   const validate = () => {
-    if (!vendorProductId.trim() || !productName.trim() || photos.length === 0) {
-      setError(
-        "Vendor Product ID, Product Name and at least 1 Product Photo are required.",
-      );
-      return false;
+    const errors = [];
+    if (!vendorProductId.trim()) errors.push("Vendor Product ID is required.");
+    if (!productName.trim()) errors.push("Product Name is required.");
+    if (!price.trim()) {
+      errors.push("Product Price is required.");
+    } else if (isNaN(Number(price)) || Number(price) < 0) {
+      errors.push("Product Price must be a valid number (0 or more).");
     }
-    if (!price.trim() || isNaN(Number(price)) || Number(price) < 0) {
-      setError("Please enter a valid Product Price.");
-      return false;
-    }
-    setError("");
-    return true;
+    if (photos.length === 0) errors.push("At least 1 photo is required.");
+
+    setError(errors.join("\n"));
+    return errors.length === 0;
   };
 
   const addPhoto = (asset) => {
@@ -152,7 +154,19 @@ export default function AddProductScreen() {
     }
   };
 
-  const uploadPhoto = async (photo) => {
+  // Sends the product fields and every picked photo (1-4, in picked order)
+  // in ONE multipart request - the backend stores the photo bytes in the DB
+  // in the same transaction as the product, and returns the URLs it serves
+  // them from. The first photo becomes the product's cover photo.
+  const createProduct = async () => {
+    const formData = new FormData();
+    formData.append("vendor_id", String(vendor?.vendor_id ?? ""));
+    formData.append("v_prod_id", vendorProductId.trim());
+    formData.append("product_name", productName.trim());
+    formData.append("customer_product_id", customerProductId.trim());
+    formData.append("price", String(Number(price)));
+    formData.append("remarks", remark.trim());
+    formData.append("status", "active");
     // SDK 57 replaced the global fetch with Expo's own WinterCG-compliant
     // expo/fetch, whose FormData encoder only accepts strings, real Blob
     // objects, or objects exposing bytes() - it throws "Unsupported
@@ -161,65 +175,35 @@ export default function AddProductScreen() {
     // expo-file-system's File wraps the picked photo's existing local URI
     // and implements that Blob-like interface, which the new fetch does
     // understand - this is Expo's own documented fix for SDK 57.
-    const file = new File(photo.uri);
-    const formData = new FormData();
-    formData.append("photo", file);
+    photos.forEach((photo) => formData.append("photos", new File(photo.uri)));
+
     // IMPORTANT: do not set a Content-Type header manually here - fetch
     // needs to generate it itself (including the required "boundary"
     // parameter) for FormData uploads to parse correctly on the backend.
-    const res = await fetch(`${API_BASE_URL}/products/upload-photo`, {
+    const res = await fetch(`${API_BASE_URL}/products`, {
       method: "POST",
       body: formData,
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.message || "Photo upload failed");
-    return data.data.photo_url;
-  };
-
-  // Uploads every picked photo (1-4) and returns their URLs in the same
-  // order they were picked in - the first one becomes the product's
-  // cover photo, same as before, everywhere else in the app still shows
-  // just that one.
-  const resolvePhotoUrls = async () => {
-    const urls = [];
-    for (const photo of photos) {
-      urls.push(await uploadPhoto(photo));
-    }
-    return urls;
-  };
-
-  const createProduct = async (photo_urls) => {
-    const data = await apiFetch("/products", {
-      method: "POST",
-      body: JSON.stringify({
-        vendor_id: vendor?.vendor_id,
-        v_prod_id: vendorProductId.trim(),
-        product_name: productName.trim(),
-        customer_product_id: customerProductId.trim(),
-        photo_url: photo_urls[0],
-        photo_urls,
-        price: Number(price),
-        remarks: remark.trim(),
-        status: "active",
-      }),
-    });
     if (!data.success)
       throw new Error(data.message || "Failed to save product");
-    return data.data.product_id;
+    return data.data;
   };
 
   const handleSaveAndAddVariant = async () => {
     if (!validate()) return;
     setSaving(true);
     try {
-      const photo_urls = await resolvePhotoUrls();
-      const product_id = await createProduct(photo_urls);
+      const { product_id, photo_url } = await createProduct();
 
       const product = {
         product_id,
         v_prod_id: vendorProductId.trim(),
         product_name: productName.trim(),
-        photo_url: photo_urls[0], // cover photo - same as everywhere else in the app
+        photo_url, // cover photo - same as everywhere else in the app
+        // Carried down Add Variant -> Assign Sizes -> Variant Catalog -> order
+        // screens, where it prefills the Cost column - without it cost shows 0.
+        price: Number(price),
       };
       // returnTo=workspace tells the downstream Add Variant -> Assign Sizes
       // chain to land back on the Vendor Workspace once sizes are saved.

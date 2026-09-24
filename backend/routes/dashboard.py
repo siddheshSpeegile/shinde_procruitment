@@ -95,10 +95,11 @@ def get_dashboard():
         # Delivered orders don't belong on this "what still needs my
         # attention" section - they're one tap away on the full Orders
         # screen, which does show every status.
-        recent_orders_query = """
+        recent_orders_query = f"""
         SELECT po.po_id, po.order_date, po.status, po.expected_delivery_date,
                po.delivered_date, v.vendor_name, v.logo_url,
-               COALESCE(SUM(psd.amount), 0) as order_total
+               COALESCE(SUM(psd.amount), 0) as order_total,
+               {PurchaseOrder.COVER_IMAGE_SQL}
         FROM purchase_order po
         JOIN vendor v ON po.vendor_id = v.vendor_id
         LEFT JOIN po_size_detail psd ON psd.po_id = po.po_id
@@ -121,6 +122,8 @@ def get_dashboard():
                 'brand': o['vendor_name'],
                 'logo': o['logo_url'] or '/assets/vendor.png',
                 'logoBg': '#fff',
+                # Cover photo of the order's first product - what the order cards show
+                'image': o['product_image'],
                 'date': o['order_date'].strftime('%d %b %Y') if o['order_date'] else '',
                 'expected_delivery_date': o['expected_delivery_date'].strftime('%d %b %Y') if o['expected_delivery_date'] else None,
                 'price': f"₹{int(o['order_total']):,}",

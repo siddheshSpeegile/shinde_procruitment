@@ -14,6 +14,8 @@ export default function PhotoPickerModal({
   onClose,
   onPickCamera,
   onPickGallery,
+  title = "Add Product Photo",
+  subtitle = "Choose how you'd like to add a photo",
 }) {
   return (
     <Modal
@@ -25,10 +27,8 @@ export default function PhotoPickerModal({
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Add Product Photo</Text>
-          <Text style={styles.subtitle}>
-            Choose how you'd like to add a photo
-          </Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           <View style={styles.optionsRow}>
             <TouchableOpacity onPress={onPickCamera} style={{ flex: 1 }}>

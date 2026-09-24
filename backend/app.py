@@ -20,7 +20,9 @@ app = Flask(__name__)
 # Configuration
 app.config.from_object(config)
 
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB upload limit, matches design
+# Whole-request limit: POST /api/products carries up to 4 photos (10MB each,
+# enforced per photo in routes/products.py) plus the form fields.
+app.config['MAX_CONTENT_LENGTH'] = 45 * 1024 * 1024
 # Enable CORS for all routes
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'products')
@@ -40,6 +42,8 @@ def before_request():
     """Connect to database before each request"""
     db.connect()
 
+# Legacy: products created before photos moved into the DB (see
+# GET /api/product-photos/<id>) still point at files on disk here.
 @app.route('/uploads/products/<filename>')
 def uploaded_product_photo(filename):
      return send_from_directory(UPLOAD_DIR, filename)

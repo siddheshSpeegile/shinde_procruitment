@@ -46,6 +46,8 @@ def _build_order_display(o):
         'po': f"PO-{o['po_id']}",
         'brand': o['vendor_name'],
         'logo': o['logo_url'] or '/assets/vendor.png',
+        # Cover photo of the order's first product - what the order cards show
+        'image': o.get('product_image'),
         'date': o['order_date'].strftime('%d %b %Y') if o['order_date'] else '',
         'expected_delivery_date': o['expected_delivery_date'].strftime('%d %b %Y') if o.get('expected_delivery_date') else None,
         'price': f"₹{int(o['order_total']):,}",

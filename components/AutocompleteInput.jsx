@@ -22,13 +22,22 @@ const VISIBLE_ROWS = 4;
 // suggestions: array of strings already in the DB for this field (e.g.
 // every existing category name). value/onChange: same contract as a
 // plain controlled TextInput.
+//
+// IMPORTANT: any ScrollView this is placed inside must set
+// keyboardShouldPersistTaps="handled". Otherwise, while the keyboard is
+// open, the first tap on a suggestion only dismisses the keyboard - the
+// suggestion never receives the tap, and the list then closes on blur.
 export default function AutocompleteInput({
   value,
   onChange,
   placeholder,
   suggestions = [],
 }) {
-  const [focused, setFocused] = useState(false);
+  // Open while the input is focused, and re-opened on every keystroke -
+  // picking a suggestion closes the list but leaves the input focused, so
+  // relying on focus alone meant the list never came back when the user
+  // kept typing (the "suggestions only show the first time" bug).
+  const [open, setOpen] = useState(false);
 
   const query = (value || "").trim().toLowerCase();
   const filtered = query
@@ -38,7 +47,7 @@ export default function AutocompleteInput({
   // Don't show a dropdown offering the exact thing already typed - only
   // useful once there's something meaningfully different to pick from.
   const showDropdown =
-    focused &&
+    open &&
     filtered.length > 0 &&
     !(filtered.length === 1 && filtered[0].toLowerCase() === query);
 
@@ -53,10 +62,13 @@ export default function AutocompleteInput({
         placeholder={placeholder}
         placeholderTextColor="#8a7c78"
         value={value}
-        onChangeText={onChange}
-        onFocus={() => setFocused(true)}
+        onChangeText={(text) => {
+          onChange(text);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
         // Delay so a tap on a suggestion registers before the list unmounts.
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {showDropdown && (
         <View style={[styles.dropdown, { height: dropdownHeight }]}>
@@ -69,9 +81,11 @@ export default function AutocompleteInput({
               <TouchableOpacity
                 key={item}
                 style={styles.option}
-                onPressIn={() => {
+                // onPress (not onPressIn): fires only on a completed tap,
+                // so dragging to scroll the list never picks a value.
+                onPress={() => {
                   onChange(item);
-                  setFocused(false);
+                  setOpen(false);
                 }}
               >
                 <Text style={styles.optionText} numberOfLines={1}>

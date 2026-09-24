@@ -130,12 +130,27 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
+    // Blocked here, before any request - an empty username used to reach
+    // the backend and come back as the misleading "User not found".
+    const missingUsername = !username.trim();
+    const missingPassword = !password;
+    if (missingUsername || missingPassword) {
+      setError(
+        missingUsername && missingPassword
+          ? "Please enter your username and password to log in."
+          : missingUsername
+            ? "Please enter your username to log in."
+            : "Please enter your password to log in.",
+      );
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
       const data = await apiFetch("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
       if (data.success) {
         await saveSession(data.data);

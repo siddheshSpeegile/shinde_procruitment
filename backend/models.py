@@ -1,3 +1,5 @@
+import time
+import psycopg2
 from database import db
 from datetime import datetime, date
 
@@ -151,16 +153,58 @@ class User:
 class Vendor:
     """Vendor model"""
 
+    # Columns returned to the app. Deliberately NOT "SELECT *": the vendor
+    # row also holds the logo image itself (logo_data BYTEA), which must
+    # never go into a JSON response - it can't be serialized, and would
+    # bloat every vendor list request. The image is served on its own by
+    # GET /api/vendors/<id>/logo (see get_logo below).
+    _PUBLIC_COLUMNS = """
+        vendor_id, vendor_name, vendor_short_name, vendor_code, address,
+        contact_person, mobile_number, email, gst_number, pan_number,
+        remarks, logo_url, status, updated_by, created_date, updated_date
+    """
+
     @staticmethod
     def get_all():
-        query = "SELECT * FROM vendor ORDER BY vendor_name ASC"
+        query = f"SELECT {Vendor._PUBLIC_COLUMNS} FROM vendor ORDER BY vendor_name ASC"
         return db.execute_query(query)
 
     @staticmethod
     def get_by_id(vendor_id):
-        query = "SELECT * FROM vendor WHERE vendor_id = %s"
+        query = f"SELECT {Vendor._PUBLIC_COLUMNS} FROM vendor WHERE vendor_id = %s"
         result = db.execute_query(query, (vendor_id,))
         return result[0] if result else None
+
+    @staticmethod
+    def update_logo(vendor_id, image_data, mime_type):
+        """Store a new logo image on the vendor row (logo_data BYTEA) and
+        point logo_url at the route that serves it. The URL gets a
+        ?v=<ms timestamp> that changes on every upload, so apps never keep
+        showing a cached old logo. Returns the new logo_url, or None if the
+        vendor doesn't exist."""
+        logo_url = f"/api/vendors/{vendor_id}/logo?v={int(time.time() * 1000)}"
+        query = """
+        UPDATE vendor
+        SET logo_url = %s, logo_data = %s, logo_mime_type = %s, updated_date = NOW()
+        WHERE vendor_id = %s
+        """
+        rows = db.execute_update(query, (logo_url, psycopg2.Binary(image_data), mime_type, vendor_id))
+        return logo_url if rows else None
+
+    @staticmethod
+    def get_logo(vendor_id):
+        """Raw logo bytes + mime type, or None if the vendor has no
+        uploaded logo."""
+        query = """
+        SELECT logo_data, logo_mime_type
+        FROM vendor
+        WHERE vendor_id = %s AND logo_data IS NOT NULL
+        """
+        result = db.execute_query(query, (vendor_id,))
+        if not result:
+            return None
+        # psycopg2 returns BYTEA as a memoryview - convert to plain bytes
+        return {'data': bytes(result[0]['logo_data']), 'mime_type': result[0]['logo_mime_type']}
 
     @staticmethod
     def create(vendor_name, vendor_short_name='', vendor_code='', address='',
@@ -245,6 +289,22 @@ class ProductPhoto:
         db.execute_transaction(queries)
 
     @staticmethod
+    def get_image(product_photo_id):
+        """Raw image bytes + mime type for one photo stored in the DB
+        (image_data BYTEA). Returns None if the photo doesn't exist or is
+        an older disk-based photo with no bytes stored."""
+        query = """
+        SELECT image_data, mime_type
+        FROM product_photo
+        WHERE product_photo_id = %s AND image_data IS NOT NULL
+        """
+        result = db.execute_query(query, (product_photo_id,))
+        if not result:
+            return None
+        # psycopg2 returns BYTEA as a memoryview - convert to plain bytes
+        return {'data': bytes(result[0]['image_data']), 'mime_type': result[0]['mime_type']}
+
+    @staticmethod
     def get_for_product(product_id):
         query = """
         SELECT product_photo_id, photo_url, sort_order
@@ -322,6 +382,77 @@ class Product:
             query, (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status)
         )
         return product_id
+
+    @staticmethod
+    def exists_for_vendor(vendor_id, v_prod_id):
+        """True if this vendor already has a product with this Vendor
+        Product ID - compared ignoring case and surrounding spaces, so
+        "SH-101" and " sh-101" count as the same. Inactive products count
+        too: they still hold that ID in the DB."""
+        query = """
+        SELECT 1 FROM product
+        WHERE vendor_id = %s AND LOWER(TRIM(v_prod_id)) = LOWER(TRIM(%s))
+        LIMIT 1
+        """
+        return bool(db.execute_query(query, (vendor_id, v_prod_id)))
+
+    @staticmethod
+    def create_with_photos(vendor_id, v_prod_id, product_name, photos, customer_product_id='', remarks='', price=0, status='active'):
+        """Create a product and store its photos (as BYTEA) in ONE
+        transaction - either the product and all its photos are saved, or
+        nothing is. photos: list of {'data': bytes, 'mime_type': str} in
+        display order; the first one becomes the cover photo.
+
+        Each photo's photo_url is set to the route that serves its bytes
+        (/api/product-photos/<id>), and product.photo_url to the first of
+        those - so every screen that already shows photo_url keeps working
+        unchanged. Returns {'product_id', 'photo_urls'} or None on failure."""
+        cursor = None
+        try:
+            cursor = db.connection.cursor()
+            cursor.execute(
+                """
+                INSERT INTO product
+                    (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status, created_date)
+                VALUES (%s, %s, %s, %s, '', %s, %s, %s, NOW())
+                RETURNING product_id
+                """,
+                (vendor_id, v_prod_id, product_name, customer_product_id, remarks, price, status),
+            )
+            product_id = cursor.fetchone()['product_id']
+
+            photo_urls = []
+            for i, photo in enumerate(photos):
+                # photo_url needs the new row's id, so insert first, then fill it in
+                cursor.execute(
+                    """
+                    INSERT INTO product_photo (product_id, photo_url, sort_order, image_data, mime_type)
+                    VALUES (%s, '', %s, %s, %s)
+                    RETURNING product_photo_id
+                    """,
+                    (product_id, i, psycopg2.Binary(photo['data']), photo['mime_type']),
+                )
+                photo_id = cursor.fetchone()['product_photo_id']
+                photo_url = f"/api/product-photos/{photo_id}"
+                cursor.execute(
+                    "UPDATE product_photo SET photo_url = %s WHERE product_photo_id = %s",
+                    (photo_url, photo_id),
+                )
+                photo_urls.append(photo_url)
+
+            cursor.execute(
+                "UPDATE product SET photo_url = %s WHERE product_id = %s",
+                (photo_urls[0] if photo_urls else None, product_id),
+            )
+            db.connection.commit()
+            return {'product_id': product_id, 'photo_urls': photo_urls}
+        except psycopg2.Error as e:
+            db.connection.rollback()
+            print(f"Create product with photos error: {e}")
+            return None
+        finally:
+            if cursor:
+                cursor.close()
 
     @staticmethod
     def update(product_id, v_prod_id, product_name, photo_url, customer_product_id='', remarks='', price=0, status='active'):
@@ -988,9 +1119,12 @@ class PurchaseOrder:
         """Most recently used cost/mrp/gst for this exact variant+size
         combination, so the Product Details screen can prefill known
         pricing instead of asking the user to retype it every order.
-        Falls back to a product+size match (ignoring variant) for orders
-        placed before po_size_detail tracked variant_id. Returns None if
-        there's no history either way."""
+        Falls back to the same product+size on another of its variants,
+        or - for orders placed before po_size_detail tracked variant_id -
+        a legacy row from an order containing ONLY this product (with
+        several products on one order, a variant-less row can't be tied
+        to a product, and guessing returned other products' costs).
+        Returns None if there's no history either way."""
         query = """
         SELECT psd.cost, psd.mrp, psd.gst
         FROM po_size_detail psd
@@ -1008,12 +1142,26 @@ class PurchaseOrder:
             SELECT psd.cost, psd.mrp, psd.gst
             FROM po_size_detail psd
             JOIN purchase_order po ON psd.po_id = po.po_id
-            JOIN po_product_detail ppd ON ppd.po_id = po.po_id
-            WHERE ppd.product_id = %s AND psd.size_id = %s
+            LEFT JOIN variant v ON v.variant_id = psd.variant_id
+            WHERE psd.size_id = %s
+              AND (
+                v.product_id = %s
+                OR (
+                  psd.variant_id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM po_product_detail ppd
+                    WHERE ppd.po_id = po.po_id AND ppd.product_id != %s
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM po_product_detail ppd
+                    WHERE ppd.po_id = po.po_id AND ppd.product_id = %s
+                  )
+                )
+              )
             ORDER BY po.created_date DESC
             LIMIT 1
             """
-            result = db.execute_query(fallback_query, (product_id, size_id))
+            result = db.execute_query(fallback_query, (size_id, product_id, product_id, product_id))
             if result:
                 return result[0]
 
@@ -1142,6 +1290,19 @@ class PurchaseOrder:
         """
         return db.execute_query(query, (vendor_id,))
 
+    # Correlated subquery for an order's cover image: the cover photo of the
+    # first product added to the order (lowest po_product_id) that has one.
+    # Must be used in a query where the purchase_order table is aliased "po".
+    COVER_IMAGE_SQL = """(
+            SELECT p.photo_url
+            FROM po_product_detail ppd
+            JOIN product p ON p.product_id = ppd.product_id
+            WHERE ppd.po_id = po.po_id
+              AND p.photo_url IS NOT NULL AND p.photo_url != ''
+            ORDER BY ppd.po_product_id
+            LIMIT 1
+        ) AS product_image"""
+
     @staticmethod
     def get_all(vendor_id=None, date_from=None, date_to=None):
         """All purchase orders, or only one vendor's if vendor_id is given.
@@ -1153,10 +1314,11 @@ class PurchaseOrder:
         Reused by both the global Orders screen (bottom nav) and the
         vendor-scoped Orders view inside a Vendor Workspace, so there's
         only one query to maintain."""
-        query = """
+        query = f"""
         SELECT po.po_id, po.order_date, po.status, po.expected_delivery_date,
                po.delivered_date, po.payment_status, v.vendor_name, v.logo_url,
-               COALESCE(SUM(psd.amount), 0) as order_total
+               COALESCE(SUM(psd.amount), 0) as order_total,
+               {PurchaseOrder.COVER_IMAGE_SQL}
         FROM purchase_order po
         JOIN vendor v ON po.vendor_id = v.vendor_id
         LEFT JOIN po_size_detail psd ON psd.po_id = po.po_id

@@ -544,7 +544,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import NavBar from "../../components/NavBar";
 
 // Fixed widths (not flex) for the Cart Items table, matching column
@@ -593,7 +593,10 @@ export default function ProductDetailsScreen() {
             image: p.image || p.photo_url,
             qty: 1,
             gst: "0",
-            cost: String(p.price ?? 0),
+            // Always the product's own price (set on Add Product) - never
+            // overwritten by past orders, unlike MRP/GST below. Number()
+            // also normalizes the API's decimal string ("499.00" -> "499").
+            cost: String(Number(p.price ?? 0)),
             mrp: "0",
           });
         });
@@ -605,7 +608,7 @@ export default function ProductDetailsScreen() {
   const [error, setError] = useState("");
   const [hiddenVariantIds, setHiddenVariantIds] = useState(() => new Set());
 
-  // Prefill cost/mrp/gst from the most recent order that used each exact
+  // Prefill mrp/gst from the most recent order that used each exact
   // variant+size combination, if any - saves retyping known pricing every
   // time. Runs once on mount; anything the person then edits by hand
   // takes precedence since this never re-fires after that.
@@ -630,7 +633,6 @@ export default function ProductDetailsScreen() {
             if (!match) return r;
             return {
               ...r,
-              cost: match.cost != null ? String(match.cost) : r.cost,
               mrp: match.mrp != null ? String(match.mrp) : r.mrp,
               gst: match.gst != null ? String(match.gst) : r.gst,
             };
@@ -818,7 +820,9 @@ export default function ProductDetailsScreen() {
                 {(singleProduct.image || singleProduct.photo_url) && (
                   <Image
                     source={{
-                      uri: singleProduct.image || singleProduct.photo_url,
+                      uri: resolveImageUrl(
+                        singleProduct.image || singleProduct.photo_url,
+                      ),
                     }}
                     style={styles.bannerImg}
                   />

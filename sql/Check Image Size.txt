@@ -1,0 +1,26 @@
+SELECT product_id,
+       COUNT(*) AS photos,
+       pg_size_pretty(SUM(octet_length(image_data))::bigint) AS total_size
+FROM shinde_procruitment.product_photo
+WHERE image_data IS NOT NULL
+GROUP BY product_id
+ORDER BY SUM(octet_length(image_data)) DESC;
+
+
+SELECT product_photo_id,
+       product_id,
+       sort_order,
+       mime_type,
+       pg_size_pretty(octet_length(image_data)::bigint) AS image_size
+FROM shinde_procruitment.product_photo
+WHERE image_data IS NOT NULL
+ORDER BY product_id, sort_order;
+
+
+
+
+SELECT pg_size_pretty(SUM(octet_length(image_data))::bigint) AS all_images,
+       pg_size_pretty(AVG(octet_length(image_data))::bigint) AS avg_per_photo
+       -- pg_size_pretty(pg_total_relation_size('product_photo')) AS table_on_disk
+FROM shinde_procruitment.product_photo;
+

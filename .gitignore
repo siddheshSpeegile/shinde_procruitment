@@ -41,3 +41,13 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets - keep real credentials out of git (see .env.example)
+.env
+
+# Office lock files (open Excel/Word documents)
+~$*

@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";
-import { apiFetch } from "../api/config";
+import { apiFetch, resolveImageUrl } from "../api/config";
 import NavBar from "../components/NavBar";
 import RefreshButton from "../components/RefreshButton";
 
@@ -34,13 +34,19 @@ function toLocalDateString(date) {
 // Serves BOTH the global bottom-nav Orders screen (no vendorJson param -
 // unchanged from before) AND the vendor-scoped Orders entry inside a
 // Vendor Workspace (vendorJson passed in) - one screen, not a duplicate.
+const DELIVERY_FILTERS = ["all", "pending", "delayed", "delivered"];
+
 export default function OrdersListScreen() {
   const router = useRouter();
-  const { vendorJson } = useLocalSearchParams();
+  // filter: optional starting delivery filter, e.g. the Dashboard's
+  // "View All" opens this screen already on "pending".
+  const { vendorJson, filter: initialFilter } = useLocalSearchParams();
   const vendor = vendorJson ? JSON.parse(vendorJson) : null;
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(
+    DELIVERY_FILTERS.includes(initialFilter) ? initialFilter : "all",
+  );
   const [dateFrom, setDateFrom] = useState(null); // Date object or null
   const [dateTo, setDateTo] = useState(null);
   const [showFromPicker, setShowFromPicker] = useState(false);
@@ -233,7 +239,20 @@ export default function OrdersListScreen() {
           }
           renderItem={({ item }) => (
             <View style={styles.orderCard}>
-              <Image source={{ uri: item.logo }} style={styles.orderLogo} />
+              {/* The order's first product photo (not the vendor logo) */}
+              {item.image ? (
+                <Image
+                  source={{ uri: resolveImageUrl(item.image) }}
+                  style={styles.orderLogo}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.orderLogo, styles.orderImgFallback]}>
+                  <Text style={styles.orderImgFallbackText}>
+                    {(item.brand || "?").charAt(0)}
+                  </Text>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.orderPo}>{item.po}</Text>
                 <Text style={styles.orderBrand}>{item.brand}</Text>
@@ -383,6 +402,12 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     backgroundColor: "#fff",
   },
+  orderImgFallback: {
+    backgroundColor: "#f0e9e6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  orderImgFallbackText: { fontSize: 18, fontWeight: "800", color: "#8a3230" },
   orderPo: { fontSize: 13.5, color: "#241210", fontWeight: "600" },
   orderBrand: { fontSize: 13.5, color: "#241210", marginTop: 2 },
   orderDateRow: {

@@ -348,7 +348,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import NavBar from "../../components/NavBar";
 
 export default function CartListScreen() {
@@ -575,7 +575,10 @@ export default function CartListScreen() {
             <View style={styles.card}>
               <View style={styles.imgWrap}>
                 {item.photo_url && (
-                  <Image source={{ uri: item.photo_url }} style={styles.img} />
+                  <Image
+                    source={{ uri: resolveImageUrl(item.photo_url) }}
+                    style={styles.img}
+                  />
                 )}
               </View>
               <View style={{ flex: 1 }}>

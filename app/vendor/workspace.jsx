@@ -1,7 +1,11 @@
+import { File } from "expo-file-system";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -11,8 +15,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { API_BASE_URL, apiFetch, resolveImageUrl } from "../../api/config";
 import NavBar from "../../components/NavBar";
+import PhotoPickerModal from "../../components/PhotoPickerModal";
 import RefreshButton from "../../components/RefreshButton";
 
 export default function VendorWorkspaceScreen() {
@@ -26,6 +31,71 @@ export default function VendorWorkspaceScreen() {
     orders: 0,
     cart: 0,
   });
+  // Kept in state (not read from vendorJson) so a newly uploaded logo shows
+  // immediately. logoFailed falls back to the initial if the image can't load.
+  const [logoUrl, setLogoUrl] = useState(vendor?.logo_url || null);
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [logoPickerVisible, setLogoPickerVisible] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const uploadLogo = async (asset) => {
+    setUploadingLogo(true);
+    try {
+      // Same SDK 57 FormData requirement as Add Product: wrap the picked
+      // file's local URI in expo-file-system's File, and let fetch set the
+      // multipart Content-Type (with boundary) itself.
+      const formData = new FormData();
+      formData.append("logo", new File(asset.uri));
+      const res = await fetch(
+        `${API_BASE_URL}/vendors/${vendor.vendor_id}/logo`,
+        { method: "PUT", body: formData },
+      );
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      setLogoUrl(data.data.logo_url);
+      setLogoFailed(false);
+    } catch (err) {
+      console.error("Failed to upload vendor logo", err);
+      Alert.alert(
+        "Logo not updated",
+        err.message || "Could not upload the logo. Please try again.",
+      );
+    }
+    setUploadingLogo(false);
+  };
+
+  // Backing out of the camera/gallery without picking leaves the current
+  // logo (or initial) exactly as it was - nothing is uploaded.
+  const pickLogoFromCamera = async () => {
+    setLogoPickerVisible(false);
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Camera permission is required.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) uploadLogo(result.assets[0]);
+  };
+
+  const pickLogoFromGallery = async () => {
+    setLogoPickerVisible(false);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission needed", "Photo library permission is required.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) uploadLogo(result.assets[0]);
+  };
 
   const loadStats = async () => {
     setLoading(true);
@@ -121,19 +191,41 @@ export default function VendorWorkspaceScreen() {
           style={styles.banner}
         >
           <View style={styles.bannerRow}>
-            <View style={styles.vendorLogoWrap}>
-              {vendor?.logo_url ? (
-                <Image
-                  source={{ uri: vendor.logo_url }}
-                  style={{ width: "70%", height: "70%" }}
-                  resizeMode="contain"
-                />
-              ) : (
-                <Text style={styles.vendorInitial}>
-                  {(vendor?.vendor_name || "?").charAt(0)}
-                </Text>
-              )}
-            </View>
+            <TouchableOpacity
+              onPress={() => setLogoPickerVisible(true)}
+              disabled={uploadingLogo}
+              style={styles.vendorLogoTouch}
+            >
+              <View style={styles.vendorLogoWrap}>
+                {uploadingLogo ? (
+                  <ActivityIndicator color="#8a3230" />
+                ) : logoUrl && !logoFailed ? (
+                  <Image
+                    source={{ uri: resolveImageUrl(logoUrl) }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                    onError={() => setLogoFailed(true)}
+                  />
+                ) : (
+                  <Text style={styles.vendorInitial}>
+                    {(vendor?.vendor_name || "?").charAt(0)}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.logoEditBadge}>
+                <Svg
+                  width={12}
+                  height={12}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#fff"
+                  strokeWidth={2.6}
+                >
+                  <Path d="M12 20h9" />
+                  <Path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </Svg>
+              </View>
+            </TouchableOpacity>
             <Text style={styles.vendorName}>{vendor?.vendor_name}</Text>
           </View>
           <View style={styles.statsGrid}>
@@ -277,6 +369,15 @@ export default function VendorWorkspaceScreen() {
         </View>
       </ScrollView>
 
+      <PhotoPickerModal
+        visible={logoPickerVisible}
+        onClose={() => setLogoPickerVisible(false)}
+        onPickCamera={pickLogoFromCamera}
+        onPickGallery={pickLogoFromGallery}
+        title="Update Vendor Logo"
+        subtitle="Choose how you'd like to add the logo"
+      />
+
       <NavBar active="vendor" vendor={vendor} />
     </SafeAreaView>
   );
@@ -364,6 +465,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  vendorLogoTouch: { position: "relative" },
+  logoEditBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#8a3230",
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
   },
   vendorInitial: { fontSize: 20, fontWeight: "800", color: "#4a1a18" },
   vendorName: { fontSize: 22, fontWeight: "800", color: "#fff" },

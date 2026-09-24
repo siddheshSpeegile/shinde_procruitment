@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import NavBar from "../../components/NavBar";
 import RefreshButton from "../../components/RefreshButton";
 
@@ -37,9 +37,13 @@ export default function SelectVendorScreen() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchVendors();
-  }, []);
+  // Refetch every time this screen comes back into view (not just on first
+  // mount), so e.g. a logo just changed in Vendor Workspace shows here too.
+  useFocusEffect(
+    useCallback(() => {
+      fetchVendors();
+    }, []),
+  );
 
   const filtered = vendors
     .filter((v) => (statusFilter === "all" ? true : v.status === statusFilter))
@@ -173,9 +177,9 @@ export default function SelectVendorScreen() {
                   <View style={styles.vendorLogoWrap}>
                     {item.logo_url ? (
                       <Image
-                        source={{ uri: item.logo_url }}
+                        source={{ uri: resolveImageUrl(item.logo_url) }}
                         style={styles.vendorLogo}
-                        resizeMode="contain"
+                        resizeMode="cover"
                       />
                     ) : (
                       <Text style={styles.vendorInitial}>
@@ -311,7 +315,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
-  vendorLogo: { width: "68%", height: "68%" },
+  // Fills the whole circle (the wrap clips it round) - no white ring.
+  vendorLogo: { width: "100%", height: "100%" },
   vendorInitial: { fontSize: 16, fontWeight: "800", color: "#4a1a18" },
   vendorName: { flex: 1, fontSize: 16, fontWeight: "700", color: "#fff" },
   statusBadge: {

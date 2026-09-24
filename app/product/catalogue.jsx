@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import NavBar from "../../components/NavBar";
 
 function statusStyle(status) {
@@ -135,7 +135,7 @@ export default function ProductCatalogueScreen() {
                 <View style={styles.productImgWrap}>
                   {item.photo_url && (
                     <Image
-                      source={{ uri: item.photo_url }}
+                      source={{ uri: resolveImageUrl(item.photo_url) }}
                       style={styles.productImg}
                     />
                   )}

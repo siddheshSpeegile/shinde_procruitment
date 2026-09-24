@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
-import { apiFetch } from "../api/config";
+import { apiFetch, resolveImageUrl } from "../api/config";
 import { clearSession, getSession } from "../api/session";
 import NavBar from "../components/NavBar";
 import RefreshButton from "../components/RefreshButton";
@@ -173,7 +173,12 @@ export default function DashboardScreen() {
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Recent Purchases Order</Text>
           <TouchableOpacity
-            onPress={() => router.push("/orders")}
+            onPress={() =>
+              router.push({
+                pathname: "/orders",
+                params: { filter: "pending" },
+              })
+            }
             style={styles.viewAllBtn}
           >
             <Text style={styles.viewAllText}>
@@ -212,7 +217,20 @@ export default function DashboardScreen() {
           {!loading &&
             orders.map((order) => (
               <View key={order.id} style={styles.orderCard}>
-                <Image source={{ uri: order.logo }} style={styles.orderLogo} />
+                {/* The order's first product photo (not the vendor logo) */}
+                {order.image ? (
+                  <Image
+                    source={{ uri: resolveImageUrl(order.image) }}
+                    style={styles.orderLogo}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.orderLogo, styles.orderImgFallback]}>
+                    <Text style={styles.orderImgFallbackText}>
+                      {(order.brand || "?").charAt(0)}
+                    </Text>
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.orderPo}>{order.po}</Text>
                   <Text style={styles.orderBrand}>{order.brand}</Text>
@@ -401,6 +419,12 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     backgroundColor: "#fff",
   },
+  orderImgFallback: {
+    backgroundColor: "#f0e9e6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  orderImgFallbackText: { fontSize: 18, fontWeight: "800", color: "#8a3230" },
   orderPo: { fontSize: 13.5, color: "#241210", fontWeight: "600" },
   orderBrand: { fontSize: 13.5, color: "#241210", marginTop: 2 },
   orderDateRow: {

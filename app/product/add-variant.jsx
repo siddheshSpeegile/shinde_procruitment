@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
-import { apiFetch } from "../../api/config";
+import { apiFetch, resolveImageUrl } from "../../api/config";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 
@@ -133,6 +133,9 @@ export default function AddVariantScreen() {
       </View>
 
       <ScrollView
+        // Required for the Category/Color suggestion lists to be tappable
+        // while the keyboard is open (see AutocompleteInput).
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 24,
@@ -148,7 +151,7 @@ export default function AddVariantScreen() {
           <View style={styles.bannerImgWrap}>
             {product?.photo_url && (
               <Image
-                source={{ uri: product.photo_url }}
+                source={{ uri: resolveImageUrl(product.photo_url) }}
                 style={styles.bannerImg}
               />
             )}
