@@ -681,9 +681,8 @@ export default function ProductDetailsScreen() {
         variant_id: r.variant_id,
         code: r.code,
         label:
-          [r.category_name, r.pattern_name, r.color_name]
-            .filter(Boolean)
-            .join(" | ") || `Variant ${r.variant_id}`,
+          [r.category_name, r.color_name].filter(Boolean).join(" | ") ||
+          `Variant ${r.variant_id}`,
       });
     }
   });
@@ -890,11 +889,7 @@ export default function ProductDetailsScreen() {
             label="Variant"
             value={
               singleVariant
-                ? [
-                    singleVariant.category_name,
-                    singleVariant.pattern_name,
-                    singleVariant.color_name,
-                  ]
+                ? [singleVariant.category_name, singleVariant.color_name]
                     .filter(Boolean)
                     .join(" | ") || "—"
                 : "Multiple"

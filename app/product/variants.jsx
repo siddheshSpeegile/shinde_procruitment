@@ -145,8 +145,8 @@ export default function VariantCatalogScreen() {
           renderItem={({ item }) => {
             const st = statusStyle(item.status);
             const label = [
+              // Pattern not shown - always "Standard" for now
               item.category_name,
-              item.pattern_name,
               item.color_name,
             ]
               .filter(Boolean)
@@ -159,7 +159,9 @@ export default function VariantCatalogScreen() {
                 <View
                   style={[
                     styles.colorCircle,
-                    { backgroundColor: item.hex_code || "#ccc" },
+                    item.hex_code
+                      ? { backgroundColor: item.hex_code }
+                      : { borderWidth: 1.5, borderColor: "#8a7c78" },
                   ]}
                 />
                 <View style={{ flex: 1 }}>

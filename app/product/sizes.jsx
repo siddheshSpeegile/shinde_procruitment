@@ -182,7 +182,9 @@ export default function AssignSizesScreen() {
           <View
             style={[
               styles.colorDot,
-              { backgroundColor: variant?.hex_code || "#1c1210" },
+              variant?.hex_code
+                ? { backgroundColor: variant.hex_code }
+                : { borderWidth: 1.5, borderColor: "#8a7c78" },
             ]}
           />
           <Text style={styles.title}>
@@ -190,7 +192,7 @@ export default function AssignSizesScreen() {
           </Text>
         </View>
         <Text style={[styles.subtitle, { marginLeft: 50 }]}>
-          {[variant?.category_name, variant?.pattern_name, variant?.color_name]
+          {[variant?.category_name, variant?.color_name]
             .filter(Boolean)
             .join(" | ")}
         </Text>

@@ -2,6 +2,7 @@ import time
 import psycopg2
 from database import db
 from datetime import datetime, date
+from colour_hex import guess_hex
 
 
 class Role:
@@ -334,6 +335,20 @@ class Suggestions:
         'product_remarks': "SELECT DISTINCT remarks FROM product WHERE remarks IS NOT NULL AND remarks != '' ORDER BY remarks",
         'customer_product_id': "SELECT DISTINCT customer_product_id FROM product WHERE customer_product_id IS NOT NULL AND customer_product_id != '' ORDER BY customer_product_id",
         'order_remarks': "SELECT DISTINCT remarks FROM purchase_order WHERE remarks IS NOT NULL AND remarks != '' ORDER BY remarks",
+        # Add Variant's Category/Color suggestions come from the shinde_shoes
+        # master (Dim) tables, not this app's own category/color tables.
+        # Schema-qualified and quoted: those table/column names are
+        # mixed-case. UNKNOWN_* are placeholder rows, not real values.
+        'category': """
+            SELECT DISTINCT TRIM("CategoryName") FROM shinde_shoes."DimCategory"
+            WHERE TRIM(COALESCE("CategoryName", '')) != '' AND "CategoryName" NOT LIKE 'UNKNOWN%%'
+            ORDER BY 1
+        """,
+        'colour': """
+            SELECT DISTINCT TRIM("ColourName") FROM shinde_shoes."DimColour"
+            WHERE TRIM(COALESCE("ColourName", '')) != '' AND "ColourName" NOT LIKE 'UNKNOWN%%'
+            ORDER BY 1
+        """,
     }
 
     @staticmethod
@@ -641,16 +656,44 @@ class Color:
         return db.execute_query(query)
 
     @staticmethod
-    def find_or_create(name):
-        name = name.strip()
+    def resolve_hex(name):
+        """The swatch colour for a colour name, as (hex_code, source):
+        source 'saved' = already stored on this colour in the color table,
+        'auto' = guessed from the name (colour_hex.guess_hex), or
+        (None, None) = unknown - the app should ask the user to pick one."""
+        name = (name or '').strip()
         existing = db.execute_query(
-            "SELECT color_id FROM color WHERE LOWER(color_name) = LOWER(%s)", (name,)
+            "SELECT hex_code FROM color WHERE LOWER(color_name) = LOWER(%s) AND hex_code IS NOT NULL LIMIT 1",
+            (name,),
         )
         if existing:
-            return existing[0]['color_id']
+            return existing[0]['hex_code'], 'saved'
+        guessed = guess_hex(name)
+        return (guessed, 'auto') if guessed else (None, None)
+
+    @staticmethod
+    def find_or_create(name, hex_code=None):
+        """Find a colour by name (ignoring case), or create it. Makes sure it
+        ends up with a hex_code whenever possible: an existing colour that has
+        none gets the user-picked hex_code, or else one guessed from its
+        name. A colour that already has a hex_code keeps it."""
+        name = name.strip()
+        existing = db.execute_query(
+            "SELECT color_id, hex_code FROM color WHERE LOWER(color_name) = LOWER(%s)", (name,)
+        )
+        if existing:
+            color_id = existing[0]['color_id']
+            if not existing[0]['hex_code']:
+                new_hex = hex_code or guess_hex(name)
+                if new_hex:
+                    db.execute_update(
+                        "UPDATE color SET hex_code = %s, updated_date = NOW() WHERE color_id = %s",
+                        (new_hex, color_id),
+                    )
+            return color_id
         result = db.execute_insert(
-            "INSERT INTO color (color_name, status, created_date) VALUES (%s, 'active', NOW()) RETURNING color_id",
-            (name,)
+            "INSERT INTO color (color_name, hex_code, status, created_date) VALUES (%s, %s, 'active', NOW()) RETURNING color_id",
+            (name, hex_code or guess_hex(name))
         )
         return result
 
@@ -771,7 +814,7 @@ class Variant:
         return variant_id
 
     @staticmethod
-    def create_from_names(product_id, category_name, color_name, pattern_name='Standard', remarks='', gender_name=None):
+    def create_from_names(product_id, category_name, color_name, pattern_name='Standard', remarks='', gender_name=None, color_hex=None):
         """Find-or-create each lookup value by name, then create the variant.
         Used by the Add Variant screen, which takes free-text input instead
         of IDs. Gender is optional - the Add Variant screen no longer asks
@@ -779,7 +822,7 @@ class Variant:
         None) for any other caller that still wants to set it."""
         category_id = Category.find_or_create(category_name)
         gender_id = Gender.find_or_create(gender_name) if gender_name else None
-        color_id = Color.find_or_create(color_name)
+        color_id = Color.find_or_create(color_name, color_hex)
         pattern_id = Pattern.find_or_create(pattern_name)
 
         if not all([category_id, color_id, pattern_id]):

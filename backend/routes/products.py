@@ -1,10 +1,12 @@
 import io
+import re
 from flask import Blueprint, request, make_response
 from PIL import Image, ImageOps
 from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, Gender, Pattern, Color, GstMaster
 from utils import success_response, error_response, validate_json
 
 MAX_PHOTOS = 4
+HEX_CODE_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
 MAX_PHOTO_BYTES = 10 * 1024 * 1024  # per photo, as uploaded (before compression)
 # Stored photos are resized so their longest side is at most this many px,
 # then saved as JPEG at this quality - plenty for a phone screen, a fraction
@@ -41,6 +43,19 @@ def get_colors():
         return error_response("Failed to fetch colors", 500)
     return success_response(colors, "Colors fetched successfully")
  
+@products_bp.route('/colors/hex', methods=['GET'])
+def get_color_hex():
+    """Swatch colour for a colour name, for the Add Variant screen:
+    ?name=BLK/GRN -> {hex_code, source}. source is 'saved' (already stored),
+    'auto' (guessed from the name) or null - null means the app should ask
+    the user to pick the colour."""
+    name = (request.args.get('name') or '').strip()
+    if not name:
+        return error_response("name parameter required", 400)
+    hex_code, source = Color.resolve_hex(name)
+    return success_response({'name': name, 'hex_code': hex_code, 'source': source}, "Colour resolved")
+
+
 @products_bp.route('/colors', methods=['POST'])
 @validate_json('color_name')
 def create_color():
@@ -220,7 +235,9 @@ def create_vendor():
     vendor_id = Vendor.create(
         vendor_name=data.get('vendor_name'),
         vendor_short_name=data.get('vendor_short_name', ''),
-        vendor_code=data.get('vendor_code', ''),
+        # Blank -> NULL, not '': vendor_code has a unique index that skips
+        # only NULLs, so saving '' let just ONE vendor ever have no code.
+        vendor_code=(data.get('vendor_code') or '').strip() or None,
         address=data.get('address', ''),
         contact_person=data.get('contact_person', ''),
         mobile_number=data.get('mobile_number', ''),
@@ -251,6 +268,9 @@ def update_vendor(vendor_id):
                        'contact_person', 'mobile_number', 'email', 'gst_number',
                        'pan_number', 'remarks', 'logo_url']
     fields_to_update = {k: v for k, v in data.items() if k in allowed_fields}
+    if 'vendor_code' in fields_to_update:
+        # Same as create: a blank code is stored as NULL (see create_vendor)
+        fields_to_update['vendor_code'] = (fields_to_update['vendor_code'] or '').strip() or None
 
     rows = Vendor.update(vendor_id, updated_by=data.get('updated_by'), **fields_to_update)
 
@@ -578,11 +598,17 @@ def create_variant_quick():
     color = data.get('color')
     pattern = data.get('pattern') or 'Standard'
     remarks = data.get('remarks') or ''
+    # Optional: the swatch colour the user picked on Add Variant, sent only
+    # when the colour name couldn't be matched to one automatically.
+    color_hex = data.get('hex_code') or None
+    if color_hex and not HEX_CODE_RE.match(color_hex):
+        return error_response("hex_code must look like #RRGGBB", 400)
 
-    variant_id = Variant.create_from_names(product_id, category, color, pattern, remarks)
+    variant_id = Variant.create_from_names(product_id, category, color, pattern, remarks, color_hex=color_hex)
 
     if variant_id:
-        return success_response({'variant_id': variant_id}, "Variant created successfully", 201)
+        hex_code, _ = Color.resolve_hex(color)
+        return success_response({'variant_id': variant_id, 'hex_code': hex_code}, "Variant created successfully", 201)
     else:
         return error_response("Failed to create variant", 500)
 

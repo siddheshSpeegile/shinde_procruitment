@@ -51,3 +51,6 @@ __pycache__/
 
 # Office lock files (open Excel/Word documents)
 ~$*
+
+# Local DB backups
+backend/backups/

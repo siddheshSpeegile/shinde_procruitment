@@ -16,6 +16,30 @@ import { apiFetch, resolveImageUrl } from "../../api/config";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 
+// Offered when a colour name can't be matched to a swatch automatically.
+const PALETTE = [
+  { name: "Black", hex: "#000000" },
+  { name: "White", hex: "#FFFFFF" },
+  { name: "Grey", hex: "#808080" },
+  { name: "Silver", hex: "#C0C0C0" },
+  { name: "Red", hex: "#D32F2F" },
+  { name: "Maroon", hex: "#800000" },
+  { name: "Pink", hex: "#F48FB1" },
+  { name: "Orange", hex: "#F57C00" },
+  { name: "Yellow", hex: "#FFD600" },
+  { name: "Gold", hex: "#D4AF37" },
+  { name: "Green", hex: "#2E7D32" },
+  { name: "Olive", hex: "#808000" },
+  { name: "Blue", hex: "#1E4FC2" },
+  { name: "Navy", hex: "#000080" },
+  { name: "Sky Blue", hex: "#87CEEB" },
+  { name: "Purple", hex: "#7B1FA2" },
+  { name: "Brown", hex: "#6D4C41" },
+  { name: "Tan", hex: "#D2B48C" },
+  { name: "Beige", hex: "#E8D9B5" },
+  { name: "Cream", hex: "#FFFDD0" },
+];
+
 export default function AddVariantScreen() {
   const router = useRouter();
   const { productJson, vendorJson } = useLocalSearchParams();
@@ -29,23 +53,54 @@ export default function AddVariantScreen() {
   const [saving, setSaving] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [colorOptions, setColorOptions] = useState([]);
+  // Swatch colour for whatever is typed in Color: { name, hex, source } from
+  // GET /colors/hex. hex is null when the name couldn't be recognised (e.g.
+  // "ASST", "MULTI") - the user then has to pick one (pickedHex) to save.
+  const [colorInfo, setColorInfo] = useState(null);
+  const [pickedHex, setPickedHex] = useState(null);
+
+  const lookupColorHex = async (name) => {
+    const data = await apiFetch(`/colors/hex?name=${encodeURIComponent(name)}`);
+    const info = {
+      name,
+      hex: data.success ? data.data.hex_code : null,
+      source: data.success ? data.data.source : null,
+    };
+    setColorInfo(info);
+    return info;
+  };
+
+  // Debounced so it runs once the user pauses typing, not on every key.
+  useEffect(() => {
+    const name = color.trim();
+    const timer = setTimeout(() => {
+      setPickedHex(null);
+      if (!name) {
+        setColorInfo(null);
+        return;
+      }
+      lookupColorHex(name).catch((err) =>
+        console.error("Failed to look up colour", err),
+      );
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [color]);
+
+  const needsColorPick =
+    !!colorInfo && colorInfo.name === color.trim() && !colorInfo.hex;
 
   useEffect(() => {
-    apiFetch("/categories")
+    // Suggestions come from the shinde_shoes master tables (DimCategory /
+    // DimColour) - the endpoint returns a plain list of names.
+    apiFetch("/suggestions/category")
       .then((data) => {
-        if (data.success)
-          setCategoryOptions(
-            (data.data || []).map((c) => c.category_name).filter(Boolean),
-          );
+        if (data.success) setCategoryOptions(data.data || []);
       })
       .catch((err) => console.error("Failed to fetch categories", err));
 
-    apiFetch("/colors")
+    apiFetch("/suggestions/colour")
       .then((data) => {
-        if (data.success)
-          setColorOptions(
-            (data.data || []).map((c) => c.color_name).filter(Boolean),
-          );
+        if (data.success) setColorOptions(data.data || []);
       })
       .catch((err) => console.error("Failed to fetch colors", err));
   }, []);
@@ -63,13 +118,28 @@ export default function AddVariantScreen() {
     if (!validate()) return;
     setSaving(true);
     try {
+      // The debounced lookup may not have finished if Save was tapped
+      // straight after typing - make sure we know the colour first.
+      const name = color.trim();
+      const info =
+        colorInfo && colorInfo.name === name
+          ? colorInfo
+          : await lookupColorHex(name);
+      if (!info.hex && !pickedHex) {
+        setError(`Please pick the colour for "${name}" below.`);
+        setSaving(false);
+        return;
+      }
+
       const data = await apiFetch("/variants/quick", {
         method: "POST",
         body: JSON.stringify({
           product_id: product?.product_id,
           category: category.trim(),
-          color: color.trim(),
+          color: name,
           remarks: remarks.trim(),
+          // Only sent when the name couldn't be matched automatically
+          ...(info.hex ? {} : { hex_code: pickedHex }),
         }),
       });
       if (data.success) {
@@ -81,7 +151,7 @@ export default function AddVariantScreen() {
           category_name: category.trim(),
           color_name: color.trim(),
           pattern_name: "Standard",
-          hex_code: null,
+          hex_code: data.data.hex_code || pickedHex || null,
           status: "active",
           code: product?.v_prod_id,
           name: product?.product_name || product?.v_prod_id,
@@ -191,6 +261,42 @@ export default function AddVariantScreen() {
           suggestions={colorOptions}
           icon={<Circle cx="12" cy="12" r="9" />}
         />
+        {colorInfo?.hex && colorInfo.name === color.trim() ? (
+          <View style={styles.colorPreviewRow}>
+            <View style={[styles.swatch, { backgroundColor: colorInfo.hex }]} />
+            <Text style={styles.colorHint}>Swatch colour for this variant</Text>
+          </View>
+        ) : null}
+        {needsColorPick ? (
+          <View style={styles.pickBox}>
+            <Text style={styles.colorHint}>
+              {`We couldn't recognise "${color.trim()}". Pick the colour closest to it - it's saved for this colour name from now on.`}
+            </Text>
+            <View style={styles.paletteRow}>
+              {PALETTE.map((p) => (
+                <TouchableOpacity
+                  key={p.hex}
+                  onPress={() => {
+                    setPickedHex(p.hex);
+                    setError("");
+                  }}
+                  style={[
+                    styles.paletteItem,
+                    pickedHex === p.hex && styles.paletteItemActive,
+                  ]}
+                  accessibilityLabel={p.name}
+                >
+                  <View style={[styles.swatch, { backgroundColor: p.hex }]} />
+                </TouchableOpacity>
+              ))}
+            </View>
+            {pickedHex ? (
+              <Text style={styles.colorHint}>
+                Selected: {PALETTE.find((p) => p.hex === pickedHex)?.name}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         <FormField
           label="Remarks"
           value={remarks}
@@ -348,6 +454,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   error: { color: "#b3261e", fontSize: 13 },
+  colorPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: -6,
+  },
+  colorHint: { fontSize: 12.5, color: "#8a7c78" },
+  swatch: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#d8cfcb",
+  },
+  pickBox: {
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#e5ddd8",
+    backgroundColor: "#fff",
+    marginTop: -6,
+  },
+  paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  paletteItem: {
+    padding: 3,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  paletteItemActive: { borderColor: "#8a3230" },
   saveBtn: {
     flexDirection: "row",
     alignItems: "center",
