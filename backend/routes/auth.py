@@ -64,7 +64,7 @@
 #         return error_response("Failed to create user", 500)
 
 from flask import Blueprint, request
-from models import User
+from models import User, Role
 from utils import success_response, error_response, validate_json, hash_password, verify_password
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -76,27 +76,35 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
-    
+
     user = User.get_by_username(username)
-    
+
     if not user:
         return error_response("User not found", 401)
-    
+
     if not verify_password(password, user['password_hash']):
         return error_response("Invalid password", 401)
-    
+
     if user['status'] != 'active':
         return error_response("User account is inactive", 401)
-    
+
+    # "User".role only allows 'admin' / 'user' (User_role_check); the real
+    # role is "User".role_id -> role.role_name, returned as extra fields
+    # so clients that only read 'role' keep working.
+    role_id = user.get('role_id')
+    role_row = Role.get_by_id(role_id) if role_id else None
+
     # Return user info (in production, generate JWT token here)
     response_data = {
         'user_id': user['user_id'],
         'username': user['username'],
         'email': user['email'],
         'role': user['role'],
+        'role_id': role_id,
+        'role_name': role_row['role_name'] if role_row else None,
         'photo_url': user.get('photo_url'),
     }
-    
+
     return success_response(response_data, "Login successful")
 
 @auth_bp.route('/register', methods=['POST'])
