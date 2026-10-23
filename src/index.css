@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f5f3f0; --surface: #ffffff; --surface2: #faf8f6; --ink: #2b2422; --muted: #6b6360; --line: #e4dfda;
+  --primary: #8a3230; --primary-d: #3a1516; --primary-bg: #f5e7e5; --primary-fg: #8a3230;
+  --ok: #1f8a3d; --ok-bg: #e2f1e6; --ok-fg: #14602b; --warn-bg: #faedcc; --warn-fg: #6e4b00;
+  --bad: #c23b32; --bad-bg: #f8e0dd; --bad-fg: #9a2a22; --info-bg: #e3e9f2; --info-fg: #2c4a75;
+  --neutral-bg: #ece8e4; --neutral-fg: #5a524f; --ring: rgba(138,50,48,.18);
+  --shadow: 0 1px 2px rgba(40,25,20,.06), 0 4px 14px rgba(40,25,20,.05);
+}
+.dark {
+  --bg: #1b1716; --surface: #262120; --surface2: #2d2726; --ink: #f0ebe7; --muted: #a79d98; --line: #3a3331;
+  --primary: #a8423f; --primary-d: #c0615d; --primary-bg: #3b2221; --primary-fg: #e0958f;
+  --ok: #3fae60; --ok-bg: #1d3324; --ok-fg: #7ad394; --warn-bg: #3a2e12; --warn-fg: #f0c768;
+  --bad: #c23b32; --bad-bg: #401f1c; --bad-fg: #f1a39b; --info-bg: #223046; --info-fg: #9fbde8;
+  --neutral-bg: #332d2b; --neutral-fg: #bdb3ae; --ring: rgba(224,149,143,.25);
+  --shadow: 0 1px 2px rgba(0,0,0,.3);
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 13.5px; line-height: 1.5; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { color: var(--primary-d); text-decoration: underline; }
+*:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 h-9 px-4 rounded-md border border-line bg-surface text-ink font-medium cursor-pointer whitespace-nowrap transition-colors; }
+  .btn:hover { background: var(--surface2); text-decoration: none; color: var(--ink); }
+  .btn:disabled { @apply opacity-50 cursor-not-allowed; }
+  .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-d); border-color: var(--primary-d); color: #fff; }
+  .btn-danger { color: var(--bad); border-color: var(--bad); }
+  .btn-sm { @apply h-7 px-2.5 text-xs; }
+  .input { @apply w-full h-9 px-3 rounded-md border border-line bg-surface text-ink; }
+  .input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+  textarea.input { @apply h-auto py-2; }
+  .label { @apply block mb-1 text-xs font-medium text-muted; }
+  .card { @apply bg-surface border border-line rounded-lg; box-shadow: var(--shadow); }
+  .th { @apply text-left text-xs font-medium text-muted px-3 py-2 border-b border-line whitespace-nowrap; background: var(--surface2); }
+  .td { @apply px-3 py-2.5 border-b border-line align-middle; }
+  .pill { @apply inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize whitespace-nowrap; }
+  .pill-ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .pill-warn { background: var(--warn-bg); color: var(--warn-fg); }
+  .pill-bad { background: var(--bad-bg); color: var(--bad-fg); }
+  .pill-info { background: var(--info-bg); color: var(--info-fg); }
+  .pill-neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .print-area { box-shadow: none !important; border: none !important; }
+}
