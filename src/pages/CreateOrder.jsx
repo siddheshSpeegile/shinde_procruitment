@@ -46,6 +46,7 @@ function ProductBlock({ line, products, onChange, onRemove }) {
             <div key={v.variantId} className="mb-4">
               <div className="flex items-center gap-2 mb-1 font-medium"><Swatch hex={v.hex} />{v.label}
                 <button className="btn btn-sm ml-auto" onClick={() => onChange({ ...line, variants: line.variants.filter((_, i) => i !== vi) })}>Remove variant</button></div>
+              <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
                 <tbody>{v.sizes.map((s, si) => (
@@ -57,6 +58,7 @@ function ProductBlock({ line, products, onChange, onRemove }) {
                     <td className="td">{inr(num(s.qty) * num(s.cost))}</td>
                   </tr>))}</tbody>
               </table>
+              </div>
             </div>
           ))}
           {variants.loading ? <Spinner /> : free.length === 0 ? (
@@ -150,7 +152,7 @@ export default function CreateOrder() {
 
   return (
     <>
-      <PageHeader title="Refill Stock" sub={<><Link to="/purchase-orders">Purchase Orders</Link> / New order · POST /api/purchase-order</>} />
+      <PageHeader back={{ to: '/purchase-orders', label: 'Back', useHistory: true }} title="Refill Stock" sub={<><Link to="/purchase-orders">Purchase Orders</Link> / New order</>} />
       <div className="grid gap-4 lg:grid-cols-[1fr_280px] items-start">
         <div>
           <div className="card p-4 mb-3 grid gap-x-4 sm:grid-cols-2">

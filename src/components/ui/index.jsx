@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { resolveImage } from '../../config';
 import { api } from '../../api/client';
@@ -10,14 +11,25 @@ export const Pill = ({ tone = 'neutral', children }) => <span className={`pill p
 const TONES = { active: 'ok', delivered: 'ok', paid: 'ok', inactive: 'neutral', confirmed: 'info', draft: 'warn', unpaid: 'warn', delayed: 'bad', pending: 'info' };
 export const StatusPill = ({ value }) => <Pill tone={TONES[value] || 'neutral'}>{String(value ?? '-').replace('_', ' ')}</Pill>;
 
-export function PageHeader({ title, sub, actions }) {
+// Back button for sub-pages. Goes to `to`; with useHistory it returns to the page the user came from
+// (only when that page is inside this app), otherwise it falls back to `to`.
+export function BackButton({ to, label = 'Back', useHistory }) {
+  const nav = useNavigate();
+  const go = () => (useHistory && window.history.state?.idx > 0 ? nav(-1) : nav(to));
+  return <button type="button" className="btn btn-sm" onClick={go}><span aria-hidden="true">&larr;</span> {label}</button>;
+}
+
+export function PageHeader({ title, sub, actions, back }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 mb-4 no-print">
-      <div>
-        <h1 className="font-serif font-semibold text-[28px] leading-tight m-0">{title}</h1>
-        {sub && <div className="text-muted mt-0.5">{sub}</div>}
+    <div className="mb-4 no-print">
+      {back && <div className="mb-3"><BackButton {...back} /></div>}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="font-serif font-semibold text-[24px] md:text-[28px] leading-tight m-0">{title}</h1>
+          {sub && <div className="text-muted mt-0.5">{sub}</div>}
+        </div>
+        <div className="flex flex-wrap gap-2">{actions}</div>
       </div>
-      <div className="flex flex-wrap gap-2">{actions}</div>
     </div>
   );
 }

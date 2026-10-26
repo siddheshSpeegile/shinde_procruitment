@@ -33,13 +33,11 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader title="Dashboard" sub="Live from GET /api/dashboard. Counts cover orders that are not yet delivered." />
+      <PageHeader title="Dashboard" sub="Counts cover orders that are not yet delivered." />
       <div className="grid gap-3.5 mb-5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))' }}>
-        <Kpi label="Spend this month" value={d.total_spend} money hint="All orders dated this month" />
         <Kpi label="Order value pending" value={d.order_amount} money hint="Orders not delivered" />
         <Kpi label="Pending orders" value={d.orders_count} hint="Not delivered" />
         <Kpi label="Vendors with pending orders" value={d.vendors_count} />
-        <Kpi label="Products on pending orders" value={d.products_count} />
       </div>
       <h2 className="font-serif text-xl m-0 mb-2">Pending orders</h2>
       <DataTable rows={rows} emptyTitle="No pending orders"

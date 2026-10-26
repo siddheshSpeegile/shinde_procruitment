@@ -16,7 +16,7 @@ export default function Orders() {
 
   return (
     <>
-      <PageHeader title="Purchase Orders" sub="GET /api/orders/all with vendor, delivery status and expected-date filters"
+      <PageHeader title="Purchase Orders" sub="Filter by vendor, delivery status and expected delivery date."
         actions={<Can perm="purchase_order.create"><Link to="/refill-stock/new" className="btn btn-primary no-underline">New Refill Stock order</Link></Can>} />
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No orders match" emptyHint="Change the filters or create a new order."
         searchText={(o) => `${o.po} ${o.brand}`}

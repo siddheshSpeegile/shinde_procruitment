@@ -23,7 +23,7 @@ export default function Reports() {
   if (error) return <ErrorState error={error} onRetry={reload} />;
   return (
     <>
-      <PageHeader title="Reports" sub="Computed in the browser from GET /api/orders/all" />
+      <PageHeader title="Reports" sub="Totals over all purchase orders." />
       <MockBanner>Report formulas are not defined yet. These are simple totals over all orders, not final report logic.</MockBanner>
       <h2 className="font-serif text-xl m-0 mb-2">By delivery state</h2>
       <DataTable rows={byStatus} emptyTitle="No orders" columns={[{ header: 'State', render: (r) => <span className="capitalize">{r.state}</span> }, { header: 'Orders', key: 'orders' }, { header: 'Value', render: (r) => inr(r.amount), className: 'text-right' }]} />

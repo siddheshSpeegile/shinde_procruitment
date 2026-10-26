@@ -8,7 +8,7 @@ export default function Placeholder() {
   return (
     <>
       <PageHeader title={settings ? 'Settings' : 'Notifications'} />
-      <MockBanner>The backend has no {settings ? 'settings' : 'notification'} endpoints yet.</MockBanner>
+      <MockBanner>This screen is not available yet.</MockBanner>
       {settings ? (
         <div className="card p-4 flex items-center gap-3">Theme: <b className="capitalize">{theme}</b><button className="btn btn-sm" onClick={toggle}>Switch</button></div>
       ) : <div className="card p-10 text-center text-muted">Nothing to show.</div>}

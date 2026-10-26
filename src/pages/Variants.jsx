@@ -1,11 +1,63 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { resolveImage } from '../config';
+import { inr } from '../lib/format';
 import { colorHexApi, masterApi, productsApi, suggestionsApi, variantsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { useForm } from '../hooks/useForm';
 import { useToast } from '../context/ToastContext';
-import { Can, DataTable, Drawer, Field, PageHeader, Spinner, StatusPill, Swatch } from '../components/ui';
+import { Can, DataTable, Drawer, Field, Modal, PageHeader, Spinner, StatusPill, Swatch } from '../components/ui';
 import { isHex } from '../lib/validate';
+
+// All photos of the product (cover first) so the user can see the product before choosing a variant.
+function ProductGallery({ product, productId }) {
+  const photos = useAsync(() => productsApi.photos(productId), [productId]);
+  const [idx, setIdx] = useState(0);
+  const [zoom, setZoom] = useState(false);
+  const urls = useMemo(() => {
+    const list = (photos.data || []).map((p) => p.photo_url).filter(Boolean);
+    if (!list.length && product?.photo_url) list.push(product.photo_url);
+    return list.map(resolveImage).filter(Boolean);
+  }, [photos.data, product]);
+  const cur = urls[Math.min(idx, urls.length - 1)];
+
+  return (
+    <div className="card p-4 mb-4 flex flex-col sm:flex-row gap-4 no-print">
+      <div className="sm:w-[300px] flex-none">
+        {photos.loading ? <div className="h-[260px] sm:h-[300px] rounded-lg border border-line bg-surface2 flex items-center justify-center text-muted">Loading photos…</div>
+          : cur ? (
+            <button type="button" onClick={() => setZoom(true)} aria-label="Enlarge photo" className="block w-full rounded-lg border border-line bg-surface2 overflow-hidden cursor-zoom-in p-0">
+              <img src={cur} alt={product?.product_name || 'Product photo'} className="block w-full h-[260px] sm:h-[300px] object-contain" />
+            </button>
+          ) : <div className="h-[260px] sm:h-[300px] rounded-lg border border-line bg-surface2 flex items-center justify-center text-muted">No photo</div>}
+        {urls.length > 1 && (
+          <div className="flex flex-wrap gap-2 mt-2" role="group" aria-label="Product photos">
+            {urls.map((u, i) => (
+              <button key={u} type="button" onClick={() => setIdx(i)} aria-label={`Photo ${i + 1} of ${urls.length}`} aria-pressed={i === idx}
+                className="rounded-md overflow-hidden p-0 border-2 bg-surface" style={{ borderColor: i === idx ? 'var(--primary)' : 'var(--line)' }}>
+                <img src={u} alt="" className="block w-14 h-14 object-cover" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="font-serif font-semibold text-xl leading-tight">{product?.product_name}</div>
+        <div className="font-mono text-xs text-muted mt-0.5">{product?.v_prod_id}</div>
+        <div className="mt-3 grid gap-1">
+          <div><span className="text-muted">Price: </span><b>{inr(product?.price)}</b></div>
+          {product?.customer_product_id && <div><span className="text-muted">Customer ID: </span>{product.customer_product_id}</div>}
+          {product?.remarks && <div><span className="text-muted">Remarks: </span>{product.remarks}</div>}
+          <div><span className="text-muted">Photos: </span>{urls.length}</div>
+        </div>
+        <div className="mt-3 text-xs text-muted">Look at the photos, then add or pick a variant below. Click a photo to enlarge it.</div>
+      </div>
+      <Modal open={zoom} title={product?.product_name || 'Photo'} width={900} onClose={() => setZoom(false)} footer={<button className="btn" onClick={() => setZoom(false)}>Close</button>}>
+        {cur && <img src={cur} alt={product?.product_name || 'Product photo'} className="block w-full max-h-[70vh] object-contain" />}
+      </Modal>
+    </div>
+  );
+}
 
 function VariantForm({ productId, onDone, onClose }) {
   const toast = useToast();
@@ -73,7 +125,7 @@ function SizeDrawer({ variant, onDone, onClose }) {
 
   const toggle = (id) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   async function save() {
-    if (!sel.size) { toast.error('Select at least one size. The backend cannot save an empty selection.'); return; }
+    if (!sel.size) { toast.error('Select at least one size.'); return; }
     setBusy(true);
     try { await variantsApi.assignSizes(variant.variant_id, [...sel]); toast.success('Sizes saved.'); onDone(); }
     catch (e) { toast.error(e.message); } finally { setBusy(false); }
@@ -109,8 +161,9 @@ export default function Variants() {
 
   return (
     <>
-      <PageHeader title={product.data ? `Variants · ${product.data.product_name}` : 'Variants'} sub={<><Link to="/products">Products</Link> / {product.data?.v_prod_id}</>}
+      <PageHeader back={{ to: '/products', label: 'Back to Products' }} title={product.data ? `Variants · ${product.data.product_name}` : 'Variants'} sub={<><Link to="/products">Products</Link> / {product.data?.v_prod_id}</>}
         actions={<Can perm="variant.create"><button className="btn btn-primary" onClick={() => setAdd(true)}>Add variant</button></Can>} />
+      {product.data && <ProductGallery product={product.data} productId={productId} />}
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No variants yet" emptyHint="Add a colour and pattern, then assign sizes."
         columns={[
           { header: 'Colour', render: (v) => <span className="flex items-center gap-2"><Swatch hex={v.hex_code} />{v.color_name}</span> },

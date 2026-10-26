@@ -24,7 +24,7 @@ async function request(method, path, { body, form, params } = {}) {
 
   let res;
   try { res = await fetch(url, opts); }
-  catch { throw new ApiError('Cannot reach the server. Check that Flask is running and VITE_PROXY_TARGET is correct.', 0); }
+  catch { throw new ApiError('Cannot reach the server. Check your internet and try again. If it keeps happening, tell the Administrator.', 0); }
 
   let json = null;
   try { json = await res.json(); } catch { /* non-JSON body */ }
@@ -34,8 +34,16 @@ async function request(method, path, { body, form, params } = {}) {
     throw new ApiError(json?.message || `Request failed (${res.status})`, res.status, json);
   }
   if (method !== 'GET') {
-    const u = getUser();
-    pushAudit({ at: new Date().toISOString(), user: u?.username || '-', method, path, status: res.status, message: json?.message || '', body: form ? '(form upload)' : body });
+    // The sign-in request happens before anyone is signed in, so take the user from the typed username / the reply.
+    const isLogin = path === '/auth/login';
+    const u = getUser() || (isLogin ? json?.data : null);
+    pushAudit({
+      at: new Date().toISOString(),
+      user: u?.username || (isLogin ? body?.username : null) || '-',
+      role: u?.role_name || u?.role || null,
+      user_id: u?.user_id ?? null,
+      method, path, status: res.status, message: json?.message || '', body: form ? '(form upload)' : body,
+    });
   }
   return json && 'data' in json ? json.data : json;
 }

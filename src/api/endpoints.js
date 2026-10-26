@@ -1,4 +1,4 @@
-import { api, withUser } from './client';
+import { api, currentUserId, withUser } from './client';
 
 export const authApi = { login: (username, password) => api.post('/auth/login', { username, password }) };
 export const healthApi = { check: () => api.get('/health') };
@@ -60,15 +60,23 @@ export const variantsApi = {
 export const ordersApi = {
   list: (params) => api.get('/orders/all', params),
   get: (id) => api.get(`/orders/${id}`),
-  create: (b) => api.post('/purchase-order', b),
-  markDelivered: (id) => api.patch(`/orders/${id}/mark-delivered`, {}),
-  setStatus: (id, status) => api.patch(`/orders/${id}/status`, { status }),
-  setExpected: (id, expected_delivery_date) => api.patch(`/orders/${id}/expected-delivery-date`, { expected_delivery_date }),
-  setPayment: (id, payment_status) => api.patch(`/orders/${id}/payment-status`, { payment_status }),
+  // withUser adds the signed-in user's id, so the order records and the notifications say who did it.
+  create: (b) => api.post('/purchase-order', withUser(b)),
+  markDelivered: (id) => api.patch(`/orders/${id}/mark-delivered`, withUser({})),
+  setStatus: (id, status) => api.patch(`/orders/${id}/status`, withUser({ status })),
+  setExpected: (id, expected_delivery_date) => api.patch(`/orders/${id}/expected-delivery-date`, withUser({ expected_delivery_date })),
+  setPayment: (id, payment_status) => api.patch(`/orders/${id}/payment-status`, withUser({ payment_status })),
   lastPricing: (items) => api.post('/pricing/last-batch', { items }),
 };
 
 export const cartApi = {
   list: (vendorId) => api.get('/cart', { vendorId }),
   details: (vendorId) => api.get('/cart/details', { vendorId }),
+};
+
+export const notificationsApi = {
+  list: ({ unreadOnly, limit = 100 } = {}) => api.get('/notifications', { userId: currentUserId(), limit, unreadOnly: unreadOnly ? 1 : '' }),
+  unreadCount: () => api.get('/notifications/unread-count', { userId: currentUserId() }),
+  markRead: (ids) => api.post('/notifications/read', { user_id: currentUserId(), ids }),
+  markAllRead: () => api.post('/notifications/read', { user_id: currentUserId(), all: true }),
 };

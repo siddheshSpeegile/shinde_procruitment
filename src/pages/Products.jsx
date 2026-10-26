@@ -117,9 +117,9 @@ export default function Products() {
 
   return (
     <>
-      <PageHeader title="Products" sub="GET /api/products?vendorId= · POST (multipart) · PUT /api/products/:id"
+      <PageHeader title="Products"
         actions={<Can perm="product.create"><button className="btn btn-primary" disabled={!vendor} onClick={() => setEdit({})}>Add product</button></Can>} />
-      <MockBanner>The list endpoint returns active products only, so a deactivated product leaves this list and cannot be re-activated here. Photos cannot be changed after creation.</MockBanner>
+      <MockBanner>A deactivated product leaves this list and cannot be switched back on here. Photos cannot be changed after the product is saved.</MockBanner>
       <div className="card p-3 mb-3 flex items-center gap-3">
         <label className="label m-0" htmlFor="vsel">Vendor</label>
         <select id="vsel" className="input max-w-xs" value={vendor} onChange={(e) => pick(e.target.value)}>

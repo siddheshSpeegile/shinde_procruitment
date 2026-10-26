@@ -4,7 +4,20 @@ import { setUserProvider } from '../api/client';
 import { PERMISSION_MODE } from '../config';
 
 const KEY = 'shinde_admin_session';
+// A sign-in lasts one hour from the moment you sign in. It is not extended by activity.
+export const SESSION_MS = 60 * 60 * 1000;
+export const EXPIRED_KEY = 'shinde_session_expired';
 const Ctx = createContext(null);
+
+function flagExpired() { try { sessionStorage.setItem(EXPIRED_KEY, '1'); } catch { /* storage blocked */ } }
+function readSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (!s) return null;
+    if (!s.expiresAt || s.expiresAt <= Date.now()) { localStorage.removeItem(KEY); flagExpired(); return null; }
+    return s;
+  } catch { return null; }
+}
 export const useAuth = () => useContext(Ctx);
 
 const roleName = (r) => String(r.role_name ?? r.name ?? r.role ?? '');
@@ -30,9 +43,11 @@ async function resolvePermissions(user) {
 }
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(() => { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } });
+  const [session, setSession] = useState(readSession);
   const userRef = useRef(session?.user);
   userRef.current = session?.user;
+  const expiresRef = useRef(session?.expiresAt);
+  expiresRef.current = session?.expiresAt;
   useEffect(() => { setUserProvider(() => userRef.current); }, []);
 
   const persist = (s) => { setSession(s); s ? localStorage.setItem(KEY, JSON.stringify(s)) : localStorage.removeItem(KEY); };
@@ -41,17 +56,29 @@ export function AuthProvider({ children }) {
     const user = await authApi.login(username, password);
     userRef.current = user;
     const perms = await resolvePermissions(user);
-    persist({ user, perms });
+    try { sessionStorage.removeItem(EXPIRED_KEY); } catch { /* storage blocked */ }
+    persist({ user, perms, expiresAt: Date.now() + SESSION_MS });
     return user;
   }, []);
 
   const logout = useCallback(() => persist(null), []);
 
+  // Refreshing permissions must not extend the hour.
   const refreshPermissions = useCallback(async () => {
     if (!userRef.current) return;
     const perms = await resolvePermissions(userRef.current);
-    persist({ user: userRef.current, perms });
+    persist({ user: userRef.current, perms, expiresAt: expiresRef.current });
   }, []);
+
+  // Sign out automatically when the hour is up (checked every 15 s and when the tab regains focus).
+  useEffect(() => {
+    if (!session) return undefined;
+    const check = () => { if (Date.now() >= session.expiresAt) { flagExpired(); persist(null); } };
+    check();
+    const id = setInterval(check, 15000);
+    window.addEventListener('focus', check);
+    return () => { clearInterval(id); window.removeEventListener('focus', check); };
+  }, [session]);
 
   const value = useMemo(() => {
     const perms = session?.perms || { all: false, keys: [] };

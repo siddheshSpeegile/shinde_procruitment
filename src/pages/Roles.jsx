@@ -51,7 +51,7 @@ export default function Roles() {
 
   return (
     <>
-      <PageHeader title="Roles & Permissions" sub="GET /api/roles · /api/permissions · /api/roles/:id/permissions · PUT replaces the whole set"
+      <PageHeader title="Roles & Permissions" sub="Choose what each role can do. Saving replaces the whole list for that role."
         actions={<Can perm="role.edit"><button className="btn btn-primary" disabled={!dirty || busy || locked} onClick={save}>{busy ? 'Saving…' : 'Save permissions'}</button></Can>} />
 
       <div className="card p-4 mb-4">

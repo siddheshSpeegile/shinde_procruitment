@@ -73,7 +73,7 @@ export default function OrderDetail() {
 
   return (
     <>
-      <PageHeader title={`PO-${po.po_id}`} sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {vendor?.vendor_name || `Vendor #${po.vendor_id}`}</>}
+      <PageHeader back={{ to: '/purchase-orders', label: 'Back to Purchase Orders' }} title={`PO-${po.po_id}`} sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {vendor?.vendor_name || `Vendor #${po.vendor_id}`}</>}
         actions={<>
           <button className="btn" onClick={() => window.print()}>Print</button>
           <button className="btn" onClick={csv}>Download CSV</button>
@@ -105,6 +105,7 @@ export default function OrderDetail() {
             {vs.map(({ vid, v, rows }) => (
               <div key={vid} className="p-3 border-b border-line last:border-0">
                 <div className="mb-2 font-medium">{v?.label || 'Variant not recorded'}</div>
+                <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th text-right first:text-left">{h}</th>)}</tr></thead>
                   <tbody>{rows.map((s) => (
@@ -113,6 +114,7 @@ export default function OrderDetail() {
                       <td className="td text-right">{inr(s.mrp)}</td><td className="td text-right">{num(s.gst)}</td><td className="td text-right">{inr(num(s.cost) * num(s.qty))}</td>
                     </tr>))}</tbody>
                 </table>
+                </div>
               </div>
             ))}
           </div>

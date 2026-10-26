@@ -95,9 +95,9 @@ function MasterList({ type }) {
 
   return (
     <>
-      <PageHeader title={M.plural} sub={`GET, POST, PUT ${M.path} · PATCH ${M.path}/:id/status`}
+      <PageHeader title={M.plural}
         actions={<Can perm={`${M.perm}.create`}><button className="btn btn-primary" onClick={() => setEdit({})}>Add {M.label.toLowerCase()}</button></Can>} />
-      {type === 'sizes' && <MockBanner>GET /api/sizes returns only active sizes, so a size you deactivate here disappears and cannot be re-activated until the backend also returns inactive sizes.</MockBanner>}
+      {type === 'sizes' && <MockBanner>A size you deactivate disappears from this list and cannot be switched back on from here.</MockBanner>}
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} columns={cols} emptyTitle={`No ${M.plural.toLowerCase()} yet`}
         searchText={(r) => String(label(r)) + ' ' + (r.description || '')} />
       {edit && <MasterForm type={type} row={edit[M.idKey] ? edit : null} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}

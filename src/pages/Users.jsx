@@ -46,12 +46,12 @@ export default function Users() {
   const roleNames = (roles.data || []).map((r) => String(r.role_name ?? r.name ?? r.role));
   const persist = (n) => { setRows(n); localStorage.setItem(KEY, JSON.stringify(n)); };
 
-  if (!MOCK_USERS) return <><PageHeader title="Users" /><div className="card p-10 text-center text-muted">User management needs backend endpoints that do not exist yet. Set VITE_MOCK_USERS=true to preview the screen.</div></>;
+  if (!MOCK_USERS) return <><PageHeader title="Users" /><div className="card p-10 text-center text-muted">User management is not available yet.</div></>;
 
   return (
     <>
       <PageHeader title="Users" sub="Staff accounts and roles" actions={<Can perm="user.create"><button className="btn btn-primary" onClick={() => setEdit({})}>Add user</button></Can>} />
-      <MockBanner>No user endpoints exist on the backend (only POST /auth/login and /auth/register). These rows are stored in this browser only and do not create real logins.</MockBanner>
+      <MockBanner>User management is not connected yet. These rows are stored in this browser only and do not create real logins.</MockBanner>
       <DataTable rows={rows.map((u) => ({ ...u, __key: u.id }))} searchText={(u) => `${u.name} ${u.username} ${u.role}`}
         columns={[
           { header: 'Name', render: (u) => <span className="font-medium">{u.name}</span> },

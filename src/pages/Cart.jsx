@@ -13,9 +13,9 @@ export default function Cart() {
 
   return (
     <>
-      <PageHeader title="Cart" sub="GET /api/cart?vendorId= · read only"
+      <PageHeader title="Cart" sub="Read only. Items are added in the mobile app."
         actions={vendor && <Can perm="purchase_order.create"><Link className="btn btn-primary no-underline" to={`/refill-stock/new?vendorId=${vendor}&fromCart=1`}>Create order from cart</Link></Can>} />
-      <MockBanner>The cart belongs to a vendor, not to a user, and is filled from the mobile app. The backend has no hold list endpoint, see Hold List.</MockBanner>
+      <MockBanner>The cart belongs to a vendor, not to a user, and is filled from the mobile app.</MockBanner>
       <div className="card p-3 mb-3 flex items-center gap-3">
         <label className="label m-0" htmlFor="cv">Vendor</label>
         <select id="cv" className="input max-w-xs" value={vendor} onChange={(e) => setSp(e.target.value ? { vendorId: e.target.value } : {})}>

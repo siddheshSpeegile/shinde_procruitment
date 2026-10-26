@@ -12,9 +12,10 @@ export default function Audit() {
       <PageHeader title="Audit Logs" sub="Every successful write this browser sent to the API" actions={<button className="btn" onClick={() => setAsk(true)}>Clear log</button>} />
       <MockBanner>The backend keeps no audit trail yet. This list is recorded in this browser only, newest first, last 500 entries.</MockBanner>
       <DataTable rows={rows.map((r, i) => ({ ...r, __key: i }))} emptyTitle="Nothing recorded yet" emptyHint="Create or edit anything and it will appear here."
-        searchText={(r) => `${r.user} ${r.method} ${r.path} ${r.message}`}
+        searchText={(r) => `${r.user} ${r.role || ''} ${r.method} ${r.path} ${r.message}`}
         columns={[
-          { header: 'When', render: (r) => fmtDateTime(r.at) }, { header: 'User', key: 'user' },
+          { header: 'When', render: (r) => fmtDateTime(r.at) },
+          { header: 'User', render: (r) => <div><div className="font-medium">{r.user}</div>{r.role && <div className="text-xs text-muted">{r.role}</div>}</div> },
           { header: 'Method', render: (r) => <Pill tone={r.method === 'POST' ? 'ok' : r.method === 'DELETE' ? 'bad' : 'info'}>{r.method}</Pill> },
           { header: 'Path', render: (r) => <span className="font-mono text-xs">{r.path}</span> }, { header: 'Result', key: 'message' },
           { header: '', render: (r) => <button className="btn btn-sm" onClick={() => setOpen(r)}>Details</button> },

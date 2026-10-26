@@ -80,7 +80,7 @@ export default function Vendors() {
 
   return (
     <>
-      <PageHeader title="Vendors" sub="GET, POST, PUT /api/vendors · PATCH /status · PUT /logo"
+      <PageHeader title="Vendors"
         actions={<Can perm="vendor.create"><button className="btn btn-primary" onClick={() => setEdit({})}>Add vendor</button></Can>} />
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No vendors yet" emptyHint="Add the first vendor to start building the catalogue."
         searchText={(v) => [v.vendor_name, v.vendor_code, v.contact_person, v.mobile_number, v.gst_number].join(' ')}
