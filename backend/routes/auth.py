@@ -65,7 +65,7 @@
 
 from flask import Blueprint, request
 from models import User, Role
-from utils import success_response, error_response, validate_json, hash_password, verify_password
+from utils import success_response, error_response, validate_json, hash_password, verify_password, make_token
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -103,6 +103,8 @@ def login():
         'role_id': role_id,
         'role_name': role_row['role_name'] if role_row else None,
         'photo_url': user.get('photo_url'),
+        # Proves who you are to the user-management endpoints (valid for one hour).
+        'token': make_token(user['user_id']),
     }
 
     return success_response(response_data, "Login successful")

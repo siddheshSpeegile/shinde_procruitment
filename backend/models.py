@@ -128,6 +128,14 @@ class User:
         return result[0] if result else None
 
     @staticmethod
+    def get_by_id(user_id):
+        try:
+            result = db.execute_query('SELECT * FROM "User" WHERE user_id = %s', (int(user_id),))
+        except (TypeError, ValueError):
+            return None
+        return result[0] if result else None
+
+    @staticmethod
     def create(username, password_hash, email, role='user'):
         query = '''
         INSERT INTO "User" (username, password_hash, email, role, status, created_date)
@@ -1544,3 +1552,76 @@ class Notification:
             """,
             (user_id, ids),
         )
+
+
+
+class UserAccount:
+    """Staff accounts for the admin panel's Users screen (never returns password hashes)."""
+
+    COLUMNS = """u.user_id, u.username, u.email, u.status, u.role, u.role_id, r.role_name,
+                 u.full_name, u.mobile_number, u.created_date, u.updated_date"""
+    FROM = 'FROM "User" u LEFT JOIN role r ON r.role_id = u.role_id'
+
+    @staticmethod
+    def list_all():
+        return db.execute_query(f"SELECT {UserAccount.COLUMNS} {UserAccount.FROM} ORDER BY u.user_id")
+
+    @staticmethod
+    def get(user_id):
+        rows = db.execute_query(f"SELECT {UserAccount.COLUMNS} {UserAccount.FROM} WHERE u.user_id = %s", (user_id,))
+        return rows[0] if rows else None
+
+    @staticmethod
+    def username_taken(username, exclude_id=None):
+        rows = db.execute_query(
+            'SELECT 1 FROM "User" WHERE lower(username) = lower(%s) AND user_id <> COALESCE(%s, -1)', (username, exclude_id))
+        return bool(rows)
+
+    @staticmethod
+    def email_taken(email, exclude_id=None):
+        rows = db.execute_query(
+            'SELECT 1 FROM "User" WHERE lower(email) = lower(%s) AND user_id <> COALESCE(%s, -1)', (email, exclude_id))
+        return bool(rows)
+
+    @staticmethod
+    def create(username, password_hash, email, role_text, role_id, full_name, mobile, created_by):
+        return db.execute_insert(
+            """
+            INSERT INTO "User" (username, password_hash, email, role, role_id, status, full_name, mobile_number, updated_by, created_date)
+            VALUES (%s, %s, %s, %s, %s, 'active', %s, %s, %s, NOW())
+            RETURNING user_id
+            """,
+            (username, password_hash, email, role_text, role_id, full_name, mobile, created_by))
+
+    @staticmethod
+    def update(user_id, email, role_text, role_id, full_name, mobile, updated_by):
+        return db.execute_update(
+            """
+            UPDATE "User" SET email = %s, role = %s, role_id = %s, full_name = %s, mobile_number = %s,
+                   updated_by = %s, updated_date = NOW()
+            WHERE user_id = %s
+            """,
+            (email, role_text, role_id, full_name, mobile, updated_by, user_id))
+
+    @staticmethod
+    def set_status(user_id, status, updated_by):
+        return db.execute_update(
+            'UPDATE "User" SET status = %s, updated_by = %s, updated_date = NOW() WHERE user_id = %s',
+            (status, updated_by, user_id))
+
+    @staticmethod
+    def set_password(user_id, password_hash, updated_by):
+        return db.execute_update(
+            'UPDATE "User" SET password_hash = %s, updated_by = %s, updated_date = NOW() WHERE user_id = %s',
+            (password_hash, updated_by, user_id))
+
+    @staticmethod
+    def count_active_admins(exclude_id=None):
+        rows = db.execute_query(
+            """
+            SELECT COUNT(*) AS count FROM "User" u LEFT JOIN role r ON r.role_id = u.role_id
+            WHERE u.status = 'active'
+              AND (u.role = 'admin' OR lower(COALESCE(r.role_name, '')) LIKE 'admin%%')
+              AND u.user_id <> COALESCE(%s, -1)
+            """, (exclude_id,))
+        return int(rows[0]['count']) if rows else 0
