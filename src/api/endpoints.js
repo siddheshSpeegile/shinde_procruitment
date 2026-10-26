@@ -69,6 +69,14 @@ export const ordersApi = {
   lastPricing: (items) => api.post('/pricing/last-batch', { items }),
 };
 
+export const usersApi = {
+  list: () => api.get('/users'),
+  create: (b) => api.post('/users', b),
+  update: (id, b) => api.put(`/users/${id}`, b),
+  setStatus: (id, status) => api.patch(`/users/${id}/status`, { status }),
+  resetPassword: (id, password) => api.post(`/users/${id}/reset-password`, { password }),
+};
+
 export const cartApi = {
   list: (vendorId) => api.get('/cart', { vendorId }),
   details: (vendorId) => api.get('/cart/details', { vendorId }),

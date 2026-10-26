@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { authApi, rolesApi } from '../api/endpoints';
-import { setUserProvider } from '../api/client';
+import { setTokenProvider, setUserProvider } from '../api/client';
 import { PERMISSION_MODE } from '../config';
 
 const KEY = 'shinde_admin_session';
@@ -48,16 +48,20 @@ export function AuthProvider({ children }) {
   userRef.current = session?.user;
   const expiresRef = useRef(session?.expiresAt);
   expiresRef.current = session?.expiresAt;
+  const tokenRef = useRef(session?.token);
+  tokenRef.current = session?.token;
   setUserProvider(() => userRef.current); // set while rendering, so child components can use it in their first effects
+  setTokenProvider(() => tokenRef.current);
 
   const persist = (s) => { setSession(s); s ? localStorage.setItem(KEY, JSON.stringify(s)) : localStorage.removeItem(KEY); };
 
   const login = useCallback(async (username, password) => {
-    const user = await authApi.login(username, password);
+    const { token, ...user } = await authApi.login(username, password); // token proves who you are to the Users screen
     userRef.current = user;
+    tokenRef.current = token;
     const perms = await resolvePermissions(user);
     try { sessionStorage.removeItem(EXPIRED_KEY); } catch { /* storage blocked */ }
-    persist({ user, perms, expiresAt: Date.now() + SESSION_MS });
+    persist({ user, perms, token, expiresAt: Date.now() + SESSION_MS });
     return user;
   }, []);
 
@@ -67,7 +71,7 @@ export function AuthProvider({ children }) {
   const refreshPermissions = useCallback(async () => {
     if (!userRef.current) return;
     const perms = await resolvePermissions(userRef.current);
-    persist({ user: userRef.current, perms, expiresAt: expiresRef.current });
+    persist({ user: userRef.current, perms, token: tokenRef.current, expiresAt: expiresRef.current });
   }, []);
 
   // Sign out automatically when the hour is up (checked every 15 s and when the tab regains focus).
@@ -79,6 +83,13 @@ export function AuthProvider({ children }) {
     window.addEventListener('focus', check);
     return () => { clearInterval(id); window.removeEventListener('focus', check); };
   }, [session]);
+
+  // The server said the sign-in is no longer valid (expired token, or the account was switched off).
+  useEffect(() => {
+    const onExpired = () => { flagExpired(); persist(null); };
+    window.addEventListener('auth:expired', onExpired);
+    return () => window.removeEventListener('auth:expired', onExpired);
+  }, []);
 
   const value = useMemo(() => {
     const perms = session?.perms || { all: false, keys: [] };

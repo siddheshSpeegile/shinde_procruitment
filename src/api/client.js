@@ -6,8 +6,12 @@ let getUser = () => null;
 export const setUserProvider = (fn) => { getUser = fn; };
 // Screens can make their first requests (for example the notification bell) before the sign-in provider above is
 // registered, so fall back to the saved session. Without it those requests run with no user.
-const savedUser = () => { try { return JSON.parse(localStorage.getItem('shinde_admin_session'))?.user ?? null; } catch { return null; } };
-const whoAmI = () => getUser() || savedUser();
+const savedSession = () => { try { return JSON.parse(localStorage.getItem('shinde_admin_session')); } catch { return null; } };
+const whoAmI = () => getUser() || savedSession()?.user || null;
+// Login token: only the user-management endpoints (/users...) ask for it.
+let getToken = () => null;
+export const setTokenProvider = (fn) => { getToken = fn; };
+const currentToken = () => getToken() || savedSession()?.token || null;
 export const currentUserId = () => whoAmI()?.user_id ?? null;
 
 export class ApiError extends Error {
@@ -23,6 +27,8 @@ async function request(method, path, { body, form, params } = {}) {
     if (s) url += (url.includes('?') ? '&' : '?') + s;
   }
   const opts = { method, headers: {} };
+  const needsToken = path.startsWith('/users');
+  if (needsToken && currentToken()) opts.headers.Authorization = `Bearer ${currentToken()}`;
   if (form) opts.body = form;
   else if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
 
@@ -34,6 +40,7 @@ async function request(method, path, { body, form, params } = {}) {
   try { json = await res.json(); } catch { /* non-JSON body */ }
   if (import.meta.env.DEV) console.debug(`[api] ${method} ${path} -> ${res.status}`, json);
 
+  if (res.status === 401 && needsToken) window.dispatchEvent(new Event('auth:expired')); // token missing, expired or account switched off
   if (!res.ok || (json && json.success === false)) {
     throw new ApiError(json?.message || `Request failed (${res.status})`, res.status, json);
   }
