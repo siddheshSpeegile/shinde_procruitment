@@ -14,6 +14,7 @@ import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../api/config";
 import { clearSession, getSession } from "../api/session";
 import NavBar from "../components/NavBar";
+import NotificationBell from "../components/NotificationBell";
 import RefreshButton from "../components/RefreshButton";
 import SidebarDrawer from "../components/SidebarDrawer";
 
@@ -100,17 +101,7 @@ export default function DashboardScreen() {
           <Text style={styles.headerTitle}>Dashboard</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <RefreshButton onPress={fetchDashboard} refreshing={loading} />
-            <Svg
-              width={23}
-              height={23}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#1c1210"
-              strokeWidth={2}
-            >
-              <Path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
-              <Path d="M10 20a2 2 0 0 0 4 0" />
-            </Svg>
+            <NotificationBell />
           </View>
         </View>
 

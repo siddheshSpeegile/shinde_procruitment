@@ -1419,3 +1419,128 @@ class PurchaseOrder:
         po['sizes'] = db.execute_query(size_query, (po_id,))
 
         return po
+
+class Notification:
+    """In-app notifications (mobile app + admin panel). One row per event;
+    which user has read what lives in notification_read. Creating a
+    notification must never break the action that caused it, so create()
+    swallows its own errors."""
+
+    @staticmethod
+    def create(type_, title, message=None, po_id=None, created_by=None, dedupe_key=None):
+        try:
+            return db.execute_insert(
+                """
+                INSERT INTO notification (type, title, message, po_id, created_by, dedupe_key)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (dedupe_key) DO NOTHING
+                RETURNING notification_id
+                """,
+                (type_, title, message, po_id, created_by, dedupe_key),
+            )
+        except Exception as e:
+            print(f"Notification create error: {e}")
+            return None
+
+    @staticmethod
+    def actor_name(user_id):
+        """Username for an optional updated_by id sent by the client, or None."""
+        if not user_id:
+            return None
+        try:
+            rows = db.execute_query('SELECT username FROM "User" WHERE user_id = %s', (int(user_id),))
+            return rows[0]['username'] if rows else None
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def order_summary(po_id):
+        """Vendor name, order total and expected date for message text."""
+        rows = db.execute_query(
+            """
+            SELECT v.vendor_name, po.expected_delivery_date,
+                   COALESCE((SELECT SUM(amount) FROM po_size_detail WHERE po_id = po.po_id), 0) AS total
+            FROM purchase_order po JOIN vendor v ON v.vendor_id = po.vendor_id
+            WHERE po.po_id = %s
+            """,
+            (po_id,),
+        )
+        return rows[0] if rows else None
+
+    @staticmethod
+    def sync_delayed():
+        """Adds one 'delayed' alert per undelivered order whose expected date
+        has passed (once per order and expected date). Called whenever
+        notifications are read, so no scheduler is needed."""
+        rows = db.execute_query(
+            """
+            SELECT po.po_id, po.expected_delivery_date, v.vendor_name
+            FROM purchase_order po
+            JOIN vendor v ON v.vendor_id = po.vendor_id
+            WHERE po.status <> 'delivered'
+              AND po.expected_delivery_date IS NOT NULL
+              AND po.expected_delivery_date < CURRENT_DATE
+              AND NOT EXISTS (
+                  SELECT 1 FROM notification n
+                  WHERE n.dedupe_key = 'delayed:' || po.po_id::text || ':' || po.expected_delivery_date::text
+              )
+            """
+        )
+        for r in rows or []:
+            due = r['expected_delivery_date']
+            Notification.create(
+                'order_delayed',
+                f"PO-{r['po_id']} is delayed",
+                f"{r['vendor_name']} order PO-{r['po_id']} was due on {due.strftime('%d %b %Y')} and is not delivered yet.",
+                po_id=r['po_id'],
+                dedupe_key=f"delayed:{r['po_id']}:{due.isoformat()}",
+            )
+
+    @staticmethod
+    def list_for_user(user_id, limit=50, unread_only=False):
+        query = """
+        SELECT n.notification_id, n.type, n.title, n.message, n.po_id, n.created_date,
+               (nr.user_id IS NOT NULL) AS is_read
+        FROM notification n
+        LEFT JOIN notification_read nr
+               ON nr.notification_id = n.notification_id AND nr.user_id = %s
+        """
+        if unread_only:
+            query += " WHERE nr.user_id IS NULL"
+        query += " ORDER BY n.created_date DESC, n.notification_id DESC LIMIT %s"
+        return db.execute_query(query, (user_id, limit))
+
+    @staticmethod
+    def unread_count(user_id):
+        rows = db.execute_query(
+            """
+            SELECT COUNT(*) AS count FROM notification n
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notification_read nr
+                WHERE nr.notification_id = n.notification_id AND nr.user_id = %s
+            )
+            """,
+            (user_id,),
+        )
+        return int(rows[0]['count']) if rows else 0
+
+    @staticmethod
+    def mark_read(user_id, ids=None):
+        """Marks the given notification ids (or every notification when ids is None) as read for this user."""
+        if ids is None:
+            return db.execute_update(
+                """
+                INSERT INTO notification_read (user_id, notification_id)
+                SELECT %s, notification_id FROM notification
+                ON CONFLICT DO NOTHING
+                """,
+                (user_id,),
+            )
+        return db.execute_update(
+            """
+            INSERT INTO notification_read (user_id, notification_id)
+            SELECT %s, n.notification_id FROM notification n WHERE n.notification_id = ANY(%s)
+            ON CONFLICT DO NOTHING
+            """,
+            (user_id, ids),
+        )

@@ -1,9 +1,30 @@
 from flask import Blueprint, request
 from datetime import datetime
-from models import PurchaseOrder
+from models import PurchaseOrder, Notification
 from utils import success_response, error_response, validate_json
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
+
+
+def _actor(data):
+    """Optional updated_by sent by the client (the admin panel sends it).
+    Returns (user_id, username) only if that user exists, else (None, None) -
+    so a wrong id can never make an order update fail."""
+    raw = (data or {}).get('updated_by')
+    name = Notification.actor_name(raw)
+    return (int(raw), name) if name else (None, None)
+
+
+def _notify(type_, po_id, title, message, actor_id=None):
+    """Creating a notification must never break the order action itself."""
+    try:
+        Notification.create(type_, title, message, po_id=po_id, created_by=actor_id)
+    except Exception as e:
+        print(f"Notification error: {e}")
+
+
+def _by(name):
+    return f" by {name}" if name else ""
 
 
 @orders_bp.route('/pricing/last-batch', methods=['POST'])
@@ -148,6 +169,12 @@ def create_order():
     po_id = PurchaseOrder.create_order(vendor_id, order_date, products, remarks, expected_delivery_date)
     
     if po_id:
+        actor_id, actor = _actor(data)
+        info = Notification.order_summary(po_id)
+        if info:
+            _notify('order_created', po_id, f"New order PO-{po_id}",
+                    f"{info['vendor_name']} - Rs {float(info['total']):,.0f} - expected {info['expected_delivery_date'].strftime('%d %b %Y') if info['expected_delivery_date'] else 'date not set'}{_by(actor)}",
+                    actor_id)
         return success_response({'po_id': po_id}, "Purchase order created successfully", 201)
     else:
         return error_response("Failed to create purchase order", 500)
@@ -159,9 +186,15 @@ def mark_order_delivered(po_id):
     equivalent to PATCH /orders/<po_id>/status with {"status": "delivered"}.
     Safe to call more than once - a repeat call is a genuine no-op and
     still returns success, it just won't reset delivered_date."""
-    rows = PurchaseOrder.mark_delivered(po_id)
+    actor_id, actor = _actor(request.get_json(silent=True))
+    old = PurchaseOrder.get_by_id(po_id)
+    rows = PurchaseOrder.mark_delivered(po_id, actor_id)
 
     if rows:
+        if old and old['status'] != 'delivered':
+            info = Notification.order_summary(po_id)
+            _notify('order_delivered', po_id, f"PO-{po_id} delivered",
+                    f"{info['vendor_name'] if info else 'Vendor'} order marked as delivered{_by(actor)}.", actor_id)
         return success_response({'po_id': po_id}, "Order marked as delivered")
     else:
         return error_response("Order not found", 404)
@@ -191,9 +224,19 @@ def update_order_status(po_id):
             400,
         )
 
-    rows = PurchaseOrder.update_status(po_id, status)
+    actor_id, actor = _actor(data)
+    old = PurchaseOrder.get_by_id(po_id)
+    rows = PurchaseOrder.update_status(po_id, status, actor_id)
 
     if rows:
+        if old and old['status'] != status:
+            info = Notification.order_summary(po_id)
+            vendor = info['vendor_name'] if info else 'Vendor'
+            if status == 'delivered':
+                _notify('order_delivered', po_id, f"PO-{po_id} delivered", f"{vendor} order marked as delivered{_by(actor)}.", actor_id)
+            else:
+                _notify('order_status', po_id, f"PO-{po_id} status: {status.title()}",
+                        f"{vendor} order changed from {old['status']} to {status}{_by(actor)}.", actor_id)
         return success_response({'po_id': po_id, 'status': status}, "Order status updated")
     else:
         return error_response("Order not found", 404)
@@ -219,9 +262,15 @@ def update_order_expected_delivery_date(po_id):
     except (ValueError, TypeError):
         return error_response("expected_delivery_date must be in YYYY-MM-DD format", 400)
 
-    rows = PurchaseOrder.update_expected_delivery_date(po_id, parsed_date)
+    actor_id, actor = _actor(data)
+    old = PurchaseOrder.get_by_id(po_id)
+    rows = PurchaseOrder.update_expected_delivery_date(po_id, parsed_date, actor_id)
 
     if rows:
+        if old and old.get('expected_delivery_date') != parsed_date:
+            info = Notification.order_summary(po_id)
+            _notify('order_date', po_id, f"PO-{po_id} expected date changed",
+                    f"{info['vendor_name'] if info else 'Vendor'}: now due {parsed_date.strftime('%d %b %Y')}{_by(actor)}.", actor_id)
         return success_response(
             {'po_id': po_id, 'expected_delivery_date': date_str},
             "Expected delivery date updated",
@@ -251,9 +300,15 @@ def update_order_payment_status(po_id):
             400,
         )
 
-    rows = PurchaseOrder.update_payment_status(po_id, payment_status)
+    actor_id, actor = _actor(data)
+    old = PurchaseOrder.get_by_id(po_id)
+    rows = PurchaseOrder.update_payment_status(po_id, payment_status, actor_id)
 
     if rows:
+        if old and old.get('payment_status') != payment_status:
+            info = Notification.order_summary(po_id)
+            _notify('order_payment', po_id, f"PO-{po_id} marked {payment_status}",
+                    f"{info['vendor_name'] if info else 'Vendor'} order payment status is now {payment_status}{_by(actor)}.", actor_id)
         return success_response(
             {'po_id': po_id, 'payment_status': payment_status}, "Payment status updated"
         )

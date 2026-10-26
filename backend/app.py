@@ -12,6 +12,7 @@ from routes.orders import orders_bp
 from routes.dashboard import dashboard_bp
 from flask import send_from_directory
 from routes.roles import roles_bp
+from routes.notifications import notifications_bp
 
 
 
@@ -35,6 +36,7 @@ app.register_blueprint(cart_bp)
 app.register_blueprint(orders_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(roles_bp)
+app.register_blueprint(notifications_bp)
 
 
 @app.before_request
