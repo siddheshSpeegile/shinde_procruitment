@@ -1,3 +1,5 @@
+import { getSession } from "./session";
+
 // // Replace with your machine's actual LAN IP (run `ipconfig` on Windows,
 // // look for IPv4 Address under your WiFi adapter - NOT 127.0.0.1/localhost).
 // const LOCAL_IP = "192.168.1.42";
@@ -46,9 +48,17 @@ export function resolveImageUrl(path) {
 }
 
 export async function apiFetch(path, options = {}) {
+  // Tell the server this request comes from the mobile app and who is signed in
+  // (the token from login), so the admin panel's Audit Logs can show it.
+  const session = await getSession();
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client": "mobile",
+      ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
+      ...(options.headers || {}),
+    },
   });
   return res.json();
 }

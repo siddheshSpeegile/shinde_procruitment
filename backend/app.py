@@ -14,6 +14,8 @@ from flask import send_from_directory
 from routes.roles import roles_bp
 from routes.notifications import notifications_bp
 from routes.users import users_bp
+from routes.audit import audit_bp
+from audit_log import record_request
 
 
 
@@ -39,12 +41,20 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(roles_bp)
 app.register_blueprint(notifications_bp)
 app.register_blueprint(users_bp)
+app.register_blueprint(audit_bp)
 
 
 @app.before_request
 def before_request():
     """Connect to database before each request"""
     db.connect()
+
+
+@app.after_request
+def audit_after_request(response):
+    """Record successful changes in the audit log (never affects the response)."""
+    record_request(response)
+    return response
 
 # Legacy: products created before photos moved into the DB (see
 # GET /api/product-photos/<id>) still point at files on disk here.

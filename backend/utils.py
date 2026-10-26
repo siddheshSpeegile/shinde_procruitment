@@ -71,6 +71,14 @@ def make_token(user_id):
     return _serializer().dumps({'uid': user_id})
 
 
+def user_id_from_token(token):
+    """Who a login token belongs to (signature checked, expiry ignored). Used only to label audit entries."""
+    try:
+        return _serializer().loads(token).get('uid')
+    except Exception:
+        return None
+
+
 def _has_permission(user, key):
     """Administrators can do everything; other roles need the permission key in the role table."""
     if user.get('role') == 'admin':
