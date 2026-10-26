@@ -8,6 +8,9 @@ import { ToastProvider } from './context/ToastContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
+// The Audit Logs screen now reads the server's log; remove the old list that was kept in this browser.
+try { localStorage.removeItem('shinde_admin_audit'); } catch { /* storage blocked */ }
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>

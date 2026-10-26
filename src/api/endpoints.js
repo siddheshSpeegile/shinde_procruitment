@@ -77,6 +77,10 @@ export const usersApi = {
   resetPassword: (id, password) => api.post(`/users/${id}/reset-password`, { password }),
 };
 
+export const auditApi = {
+  list: ({ source, limit = 300 } = {}) => api.get('/audit-logs', { source: source || '', limit }),
+};
+
 export const cartApi = {
   list: (vendorId) => api.get('/cart', { vendorId }),
   details: (vendorId) => api.get('/cart/details', { vendorId }),

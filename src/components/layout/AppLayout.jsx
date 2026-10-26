@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ROUTES } from '../../router/routes';
 import { useAuth } from '../../context/AuthContext';
@@ -40,8 +40,9 @@ export default function AppLayout() {
       <aside id="sidebar" aria-label="Menu"
         className={`w-60 flex-none bg-side text-[#e8e2de] flex flex-col no-print fixed inset-y-0 left-0 z-40 md:static md:translate-x-0 md:visible transition-[transform,visibility] duration-200 ${open ? 'translate-x-0 visible' : '-translate-x-full invisible'}`}>
         <div className="h-[60px] flex items-center gap-2.5 px-4 border-b border-white/10">
-          <div className="w-8 h-8 rounded-md bg-[#8a3230] text-white font-semibold flex items-center justify-center">S</div>
-          <div className="flex-1"><div className="font-semibold tracking-widest">SHINDE</div><div className="text-[11px] text-[#a79d98]">Procurement admin</div></div>
+          <Link to="/" className="flex-1 flex items-center" aria-label="Shinde Shoes - Dashboard">
+            <span className="bg-white rounded-lg px-2 h-[46px] flex items-center"><img src="/logo-sidebar.jpg" alt="Shinde Shoes" className="h-[38px] w-auto block" /></span>
+          </Link>
           <button type="button" className="md:hidden w-9 h-9 rounded-md text-xl text-[#d9d1cc] hover:bg-white/10" aria-label="Close menu" onClick={() => setOpen(false)}>&times;</button>
         </div>
         <nav className="flex-1 overflow-y-auto py-2" aria-label="Main">
@@ -65,7 +66,7 @@ export default function AppLayout() {
             <button type="button" className="btn btn-sm !h-9 !w-9 !px-0" aria-label="Open menu" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             </button>
-            <span className="font-semibold tracking-widest text-[13px]">SHINDE</span>
+            <Link to="/" aria-label="Dashboard" className="flex items-center"><img src="/logo-sidebar.jpg" alt="Shinde Shoes" className="h-8 w-auto block" /></Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <span className="text-xs flex items-center gap-1.5 text-muted" role="status" aria-label={`Server ${status}`}>

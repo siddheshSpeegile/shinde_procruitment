@@ -1,5 +1,4 @@
 import { API_BASE } from '../config';
-import { pushAudit } from '../lib/audit';
 
 // The only file that calls fetch. Unwraps Flask's { success, message, data } envelope and raises ApiError.
 let getUser = () => null;
@@ -27,8 +26,13 @@ async function request(method, path, { body, form, params } = {}) {
     if (s) url += (url.includes('?') ? '&' : '?') + s;
   }
   const opts = { method, headers: {} };
-  const needsToken = path.startsWith('/users');
-  if (needsToken && currentToken()) opts.headers.Authorization = `Bearer ${currentToken()}`;
+  // Changes also carry the login token (and a label), so the server's Audit Log can name who did it.
+  // GETs only send it for the screens that need it, to avoid an extra browser pre-check on every read.
+  const isChange = method !== 'GET';
+  const needsToken = isChange || path.startsWith('/users') || path.startsWith('/audit-logs');
+  const sentToken = needsToken && currentToken();
+  if (sentToken) opts.headers.Authorization = `Bearer ${sentToken}`;
+  if (isChange) opts.headers['X-Client'] = 'panel';
   if (form) opts.body = form;
   else if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
 
@@ -40,21 +44,9 @@ async function request(method, path, { body, form, params } = {}) {
   try { json = await res.json(); } catch { /* non-JSON body */ }
   if (import.meta.env.DEV) console.debug(`[api] ${method} ${path} -> ${res.status}`, json);
 
-  if (res.status === 401 && needsToken) window.dispatchEvent(new Event('auth:expired')); // token missing, expired or account switched off
+  if (res.status === 401 && sentToken && path !== '/auth/login') window.dispatchEvent(new Event('auth:expired')); // token expired or account switched off
   if (!res.ok || (json && json.success === false)) {
     throw new ApiError(json?.message || `Request failed (${res.status})`, res.status, json);
-  }
-  if (method !== 'GET') {
-    // The sign-in request happens before anyone is signed in, so take the user from the typed username / the reply.
-    const isLogin = path === '/auth/login';
-    const u = isLogin ? json?.data : whoAmI();
-    pushAudit({
-      at: new Date().toISOString(),
-      user: u?.username || (isLogin ? body?.username : null) || '-',
-      role: u?.role_name || u?.role || null,
-      user_id: u?.user_id ?? null,
-      method, path, status: res.status, message: json?.message || '', body: form ? '(form upload)' : body,
-    });
   }
   return json && 'data' in json ? json.data : json;
 }
