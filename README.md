@@ -34,6 +34,7 @@ This panel lives on the `admin-panel` branch of the same GitHub repo as the mobi
    Manual alternative: **New** > **Static Site**, branch `admin-panel`, build command `npm ci && npm run build`, publish directory `dist`.
 2. Environment: `VITE_API_BASE_URL=https://shinde-procruitment.onrender.com/api`, `NODE_VERSION=20`.
 3. Redirects/Rewrites: `/*` rewrite to `/index.html` (already in `render.yaml`).
+   If the site was created by hand (not from the Blueprint), add this rule yourself: Site > **Redirects/Rewrites** > Source `/*`, Destination `/index.html`, Action **Rewrite**. Without it, refreshing a page such as `/purchase-orders/5` shows "Not Found". `npm run build` also writes `dist/404.html` (a copy of `index.html`) as a backup for this.
 4. Open the Render URL and sign in. The free backend sleeps when idle, so the first request can take up to a minute.
 
 CORS is open on the backend, so no change is needed there. The API has no authentication of its own: share the panel link only with people you trust, and remember testers change the same data the mobile app uses.
