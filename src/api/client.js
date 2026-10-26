@@ -4,7 +4,11 @@ import { pushAudit } from '../lib/audit';
 // The only file that calls fetch. Unwraps Flask's { success, message, data } envelope and raises ApiError.
 let getUser = () => null;
 export const setUserProvider = (fn) => { getUser = fn; };
-export const currentUserId = () => getUser()?.user_id ?? null;
+// Screens can make their first requests (for example the notification bell) before the sign-in provider above is
+// registered, so fall back to the saved session. Without it those requests run with no user.
+const savedUser = () => { try { return JSON.parse(localStorage.getItem('shinde_admin_session'))?.user ?? null; } catch { return null; } };
+const whoAmI = () => getUser() || savedUser();
+export const currentUserId = () => whoAmI()?.user_id ?? null;
 
 export class ApiError extends Error {
   constructor(message, status, body) { super(message); this.status = status; this.body = body; }
@@ -36,7 +40,7 @@ async function request(method, path, { body, form, params } = {}) {
   if (method !== 'GET') {
     // The sign-in request happens before anyone is signed in, so take the user from the typed username / the reply.
     const isLogin = path === '/auth/login';
-    const u = getUser() || (isLogin ? json?.data : null);
+    const u = isLogin ? json?.data : whoAmI();
     pushAudit({
       at: new Date().toISOString(),
       user: u?.username || (isLogin ? body?.username : null) || '-',

@@ -48,7 +48,7 @@ export function AuthProvider({ children }) {
   userRef.current = session?.user;
   const expiresRef = useRef(session?.expiresAt);
   expiresRef.current = session?.expiresAt;
-  useEffect(() => { setUserProvider(() => userRef.current); }, []);
+  setUserProvider(() => userRef.current); // set while rendering, so child components can use it in their first effects
 
   const persist = (s) => { setSession(s); s ? localStorage.setItem(KEY, JSON.stringify(s)) : localStorage.removeItem(KEY); };
 
