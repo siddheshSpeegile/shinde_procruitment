@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ROUTES } from '../../router/routes';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { Spinner, useApiStatus } from '../ui';
+import { Spinner } from '../ui';
 import NotificationBell from '../NotificationBell';
 
 export default function AppLayout() {
@@ -12,7 +12,6 @@ export default function AppLayout() {
   const { theme, toggle } = useTheme();
   const nav = useNavigate();
   const loc = useLocation();
-  const status = useApiStatus();
   // Small screens: the sidebar is a slide-in drawer. From md up it is always visible.
   const [open, setOpen] = useState(false);
 
@@ -69,10 +68,6 @@ export default function AppLayout() {
             <Link to="/" aria-label="Dashboard" className="flex items-center"><img src="/logo-sidebar.jpg" alt="Shinde Shoes" className="h-8 w-auto block" /></Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <span className="text-xs flex items-center gap-1.5 text-muted" role="status" aria-label={`Server ${status}`}>
-              <span className="w-2 h-2 rounded-full" style={{ background: status === 'online' ? 'var(--ok)' : status === 'offline' ? 'var(--bad)' : '#bbb' }} />
-              <span className="hidden sm:inline">API {status}</span>
-            </span>
             <NotificationBell />
             <button className="btn btn-sm" onClick={toggle}>
               <span className="sm:hidden">{theme === 'dark' ? 'Light' : 'Dark'}</span>
@@ -80,7 +75,7 @@ export default function AppLayout() {
             </button>
             <div className="text-right leading-tight min-w-0 hidden xs:block max-w-[110px] sm:max-w-none">
               <div className="font-medium truncate">{user?.username}</div>
-              <div className="text-xs text-muted truncate hidden sm:block">{user?.role}</div>
+              <div className="text-xs text-muted truncate hidden sm:block">{user?.role_name || user?.role}</div>
             </div>
             <button className="btn btn-sm" onClick={() => { logout(); nav('/login'); }}>Sign out</button>
           </div>

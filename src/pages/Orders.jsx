@@ -4,7 +4,7 @@ import { ordersApi, vendorsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { Can, DataTable, PageHeader, Pill, StatusPill, Thumb } from '../components/ui';
 
-export const deliveryTone = (s) => (s === 'delayed' ? 'bad' : s === 'delivered' ? 'ok' : 'info');
+export const deliveryTone = (s) => (s === 'delayed' || s === 'rejected' ? 'bad' : s === 'awaiting_approval' ? 'warn' : s === 'delivered' ? 'ok' : 'info');
 
 export default function Orders() {
   const vendors = useAsync(() => vendorsApi.list());
@@ -25,7 +25,7 @@ export default function Orders() {
             <option value="">All vendors</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
           </select>
           <select className="input max-w-[150px]" aria-label="Delivery" value={f.deliveryStatus} onChange={set('deliveryStatus')}>
-            <option value="all">All delivery</option><option value="pending">Pending</option><option value="delayed">Delayed</option><option value="delivered">Delivered</option>
+            <option value="all">All delivery</option><option value="pending">Pending</option><option value="delayed">Delayed</option><option value="delivered">Delivered</option><option value="awaiting_approval">Waiting for approval</option><option value="rejected">Rejected</option>
           </select>
           <label className="flex items-center gap-1 text-xs text-muted">Due from <input type="date" className="input w-[140px]" value={f.dateFrom} onChange={set('dateFrom')} /></label>
           <label className="flex items-center gap-1 text-xs text-muted">to <input type="date" className="input w-[140px]" value={f.dateTo} onChange={set('dateTo')} /></label>

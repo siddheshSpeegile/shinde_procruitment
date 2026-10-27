@@ -7,7 +7,7 @@ export const setUserProvider = (fn) => { getUser = fn; };
 // registered, so fall back to the saved session. Without it those requests run with no user.
 const savedSession = () => { try { return JSON.parse(localStorage.getItem('shinde_admin_session')); } catch { return null; } };
 const whoAmI = () => getUser() || savedSession()?.user || null;
-// Login token: only the user-management endpoints (/users...) ask for it.
+// Login token, sent on every request.
 let getToken = () => null;
 export const setTokenProvider = (fn) => { getToken = fn; };
 const currentToken = () => getToken() || savedSession()?.token || null;
@@ -26,13 +26,10 @@ async function request(method, path, { body, form, params } = {}) {
     if (s) url += (url.includes('?') ? '&' : '?') + s;
   }
   const opts = { method, headers: {} };
-  // Changes also carry the login token (and a label), so the server's Audit Log can name who did it.
-  // GETs only send it for the screens that need it, to avoid an extra browser pre-check on every read.
-  const isChange = method !== 'GET';
-  const needsToken = isChange || path.startsWith('/users') || path.startsWith('/audit-logs');
-  const sentToken = needsToken && currentToken();
+  // Every request carries the login token (the server requires sign-in for the whole API) and a label for the Audit Log.
+  const sentToken = path !== '/auth/login' && currentToken();
   if (sentToken) opts.headers.Authorization = `Bearer ${sentToken}`;
-  if (isChange) opts.headers['X-Client'] = 'panel';
+  opts.headers['X-Client'] = 'panel';
   if (form) opts.body = form;
   else if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
 

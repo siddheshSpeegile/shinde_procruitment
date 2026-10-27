@@ -66,6 +66,9 @@ export const ordersApi = {
   setStatus: (id, status) => api.patch(`/orders/${id}/status`, withUser({ status })),
   setExpected: (id, expected_delivery_date) => api.patch(`/orders/${id}/expected-delivery-date`, withUser({ expected_delivery_date })),
   setPayment: (id, payment_status) => api.patch(`/orders/${id}/payment-status`, withUser({ payment_status })),
+  update: (id, b) => api.put(`/orders/${id}`, b), // edit lines/dates (approver while waiting, or the creator after a rejection)
+  approve: (id) => api.post(`/orders/${id}/approve`, {}),
+  reject: (id, note) => api.post(`/orders/${id}/reject`, { note }),
   lastPricing: (items) => api.post('/pricing/last-batch', { items }),
 };
 

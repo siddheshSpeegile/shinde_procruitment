@@ -5,7 +5,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { EXPIRED_KEY, useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
-const WORDS = ['Vendors', 'Products', 'Purchase orders', 'Roles and access'];
+const WORDS = ['Products and sizes', 'Purchase orders', 'Deliveries', 'Users and roles'];
+const LONGEST = WORDS.reduce((a, b) => (b.length > a.length ? b : a)); // sets the width of the rotating box
 const STITCHES = [
   ['M-20 220 C 150 90, 300 330, 470 190 S 720 90, 840 190', '#c98f86', 'lg-march'],
   ['M-20 272 C 150 142, 300 382, 470 242 S 720 142, 840 242', '#c98f86', 'lg-march'],
@@ -64,19 +65,22 @@ export default function Login() {
   }
 
   return (
-    <div ref={root} className="h-full grid md:grid-cols-[1.15fr_minmax(360px,520px)] grid-rows-[minmax(0,1fr)]">
-      <div className="relative hidden md:flex flex-col justify-end overflow-hidden p-14 text-[#f5f3f0]" style={{ background: 'linear-gradient(160deg,#2e1112 0%,#3a1516 55%,#4a1c1b 100%)' }}>
+    <div ref={root} className="h-full grid lg:grid-cols-[1.15fr_minmax(360px,520px)] grid-rows-[minmax(0,1fr)]">
+      <div className="relative hidden lg:flex flex-col justify-end overflow-hidden p-14 text-[#f5f3f0]" style={{ background: 'linear-gradient(160deg,#2e1112 0%,#3a1516 55%,#4a1c1b 100%)' }}>
         <div className="lg-drift absolute rounded-full" style={{ width: 560, height: 560, left: -160, top: -180, background: 'radial-gradient(circle,rgba(168,66,63,.55),transparent 65%)' }} />
         <div className="lg-drift-r absolute rounded-full" style={{ width: 480, height: 480, right: -120, bottom: -140, background: 'radial-gradient(circle,rgba(233,163,32,.22),transparent 65%)' }} />
         <svg className="lg-stitch absolute inset-0 w-full h-full opacity-55" viewBox="0 0 800 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           {STITCHES.map(([d, c, k]) => <path key={d} d={d} className={k} fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" />)}
         </svg>
         <div className="relative">
-          <h1 className="lg-hero font-serif font-semibold text-[clamp(30px,3.4vw,46px)] leading-[1.1] max-w-[470px] m-0">Procurement, vendors and orders in one place.</h1>
-          <p className="lg-hero mt-3.5 mb-0 max-w-[420px] text-[#d9a79f]">Admin panel for the Shinde footwear team.</p>
+          <h1 className="lg-hero font-serif font-semibold text-[clamp(30px,3.4vw,46px)] leading-[1.1] max-w-[470px] m-0">Welcome to your procurement workspace.</h1>
+          <p className="lg-hero mt-3.5 mb-0 max-w-[460px] text-[15px] leading-relaxed text-[#d9a79f]">Access everything you need to manage footwear products, suppliers, and purchase orders efficiently.</p>
           <div className="lg-hero mt-7 flex items-baseline gap-3 text-[#d9a79f]" aria-hidden="true">
-            <span>Manage</span>
-            <span className="relative inline-block w-60 h-[30px] font-serif text-2xl font-semibold text-[#f1b73a]">
+            <span className="text-base">Manage</span>
+            {/* The invisible copy of the longest phrase gives this box a real text line, so "Manage" and the
+                rotating words share one baseline. The visible words are stacked on top of it. */}
+            <span className="relative inline-block shrink-0 font-serif text-xl lg:text-2xl font-semibold text-[#f1b73a]">
+              <span className="invisible whitespace-nowrap">{LONGEST}</span>
               {WORDS.map((w, i) => <span key={w} className="lg-word" style={{ animationDelay: `${i * 3}s` }}>{w}</span>)}
             </span>
           </div>

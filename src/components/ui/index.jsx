@@ -8,7 +8,7 @@ import { api } from '../../api/client';
 export const Can = ({ perm, children, fallback = null }) => (useAuth().can(perm) ? children : fallback);
 
 export const Pill = ({ tone = 'neutral', children }) => <span className={`pill pill-${tone}`}>{children}</span>;
-const TONES = { active: 'ok', delivered: 'ok', paid: 'ok', inactive: 'neutral', confirmed: 'info', draft: 'warn', unpaid: 'warn', delayed: 'bad', pending: 'info' };
+const TONES = { active: 'ok', delivered: 'ok', paid: 'ok', inactive: 'neutral', confirmed: 'info', draft: 'warn', unpaid: 'warn', delayed: 'bad', pending: 'info', pending_approval: 'warn', rejected: 'bad', awaiting_approval: 'warn' };
 export const StatusPill = ({ value }) => <Pill tone={TONES[value] || 'neutral'}>{String(value ?? '-').replace('_', ' ')}</Pill>;
 
 // Back button for sub-pages. Goes to `to`; with useHistory it returns to the page the user came from

@@ -18,6 +18,7 @@ export const ROUTES = [
   { path: '/masters/gst-rates', label: 'GST Master', group: 'Masters', perm: 'gst.view', el: L(() => import('../pages/Masters')) },
   { path: '/purchase-orders', label: 'Purchase Orders', group: 'Procurement', perm: 'purchase_order.view', el: L(() => import('../pages/Orders')) },
   { path: '/purchase-orders/:id', perm: 'purchase_order.view', el: L(() => import('../pages/OrderDetail')) },
+  { path: '/purchase-orders/:id/edit', perm: 'purchase_order.create', el: L(() => import('../pages/CreateOrder')) },
   { path: '/refill-stock/new', label: 'Refill Stock', group: 'Procurement', perm: 'purchase_order.create', el: L(() => import('../pages/CreateOrder')) },
   { path: '/cart', label: 'Cart', group: 'Procurement', perm: 'cart.view', el: L(() => import('../pages/Cart')) },
   { path: '/hold-list', label: 'Hold List', group: 'Procurement', menu: false, perm: 'hold_list.view', el: L(() => import('../pages/HoldList')) },

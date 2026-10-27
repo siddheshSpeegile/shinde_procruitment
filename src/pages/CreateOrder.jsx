@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { cartApi, masterApi, ordersApi, productsApi, suggestionsApi, variantsApi, vendorsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import { Field, PageHeader, Spinner, Swatch } from '../components/ui';
-import { inr, num, today, variantLabel } from '../lib/format';
+import { inr, isoDate, num, today, variantLabel } from '../lib/format';
 
 const uid = () => Math.random().toString(36).slice(2);
 const sizeRow = (s, p = {}) => ({ size_id: s.size_id, size_value: s.size_value, qty: '', cost: p.cost ?? '', mrp: p.mrp ?? '', gst: p.gst ?? '' });
@@ -75,9 +76,40 @@ function ProductBlock({ line, products, onChange, onRemove }) {
   );
 }
 
+/** Loads an existing order into the same shape the form uses (for editing and resubmitting). */
+async function loadForEdit(id) {
+  const po = await ordersApi.get(id);
+  if (!['pending_approval', 'rejected'].includes(po.status)) throw new Error('Only an order that is waiting for approval or was rejected can be edited.');
+  if ((po.sizes || []).some((s) => !s.variant_id)) throw new Error('This older order has no variant details, so it cannot be edited.');
+  const vids = [...new Set(po.sizes.map((s) => s.variant_id))];
+  const raw = await Promise.all(vids.map((v) => variantsApi.get(v)));
+  const pids = [...new Set(raw.map((v) => v.product_id))];
+  const lists = await Promise.all(pids.map((p) => variantsApi.list(p)));
+  const sizeLists = await Promise.all(vids.map((v) => variantsApi.sizes(v)));
+  const lines = pids.map((pid, pi) => ({
+    id: uid(), productId: String(pid),
+    variants: vids.filter((_, i) => raw[i].product_id === pid).map((vid) => {
+      const i = vids.indexOf(vid);
+      const row = lists[pi].find((x) => x.variant_id === vid) || raw[i];
+      return {
+        variantId: vid, label: variantLabel(row), hex: row.hex_code,
+        sizes: sizeLists[i].filter((s) => s.assigned || po.sizes.some((p) => p.variant_id === vid && p.size_id === s.size_id)).map((s) => {
+          const ex = po.sizes.find((p) => p.variant_id === vid && p.size_id === s.size_id);
+          return { size_id: s.size_id, size_value: s.size_value, qty: ex ? String(ex.qty) : '', cost: ex ? String(num(ex.cost)) : '', mrp: ex ? String(num(ex.mrp)) : '', gst: ex ? String(num(ex.gst)) : '' };
+        }),
+      };
+    }),
+  }));
+  return { po, lines };
+}
+
 export default function CreateOrder() {
   const nav = useNavigate();
   const toast = useToast();
+  const { id } = useParams(); // present on /purchase-orders/:id/edit
+  const editing = !!id;
+  const { can } = useAuth();
+  const canApprove = can('purchase_order.approve');
   const [sp] = useSearchParams();
   const vendors = useAsync(() => vendorsApi.list());
   const gst = useAsync(() => masterApi('gst-rates').list());
@@ -90,6 +122,15 @@ export default function CreateOrder() {
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
   const products = useAsync(() => productsApi.listByVendor(vendorId), [vendorId], { enabled: !!vendorId });
+  const existing = useAsync(() => loadForEdit(id), [id], { enabled: editing });
+  const resubmit = editing && existing.data?.po.status === 'rejected';
+
+  useEffect(() => {
+    const d = existing.data;
+    if (!d) return;
+    setVendorId(String(d.po.vendor_id)); setOrderDate(isoDate(d.po.order_date)); setExpected(isoDate(d.po.expected_delivery_date));
+    setRemarks(d.po.remarks || ''); setLines(d.lines);
+  }, [existing.data]);
 
   const pickVendor = (v) => { setVendorId(v); setLines([]); };
 
@@ -111,7 +152,7 @@ export default function CreateOrder() {
     } catch (e) { toast.error(e.message); }
   }
 
-  useEffect(() => { if (vendorId && sp.get('fromCart') && !lines.length) fromCart(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (!editing && vendorId && sp.get('fromCart') && !lines.length) fromCart(); /* eslint-disable-next-line */ }, []);
 
   const all = lines.flatMap((l) => l.variants.flatMap((v) => v.sizes));
   const filled = all.filter((s) => num(s.qty) > 0);
@@ -144,20 +185,36 @@ export default function CreateOrder() {
     })).filter((p) => p.variants.length);
     setBusy(true);
     try {
-      const r = await ordersApi.create({ vendor_id: Number(vendorId), order_date: orderDate, expected_delivery_date: expected, remarks, products });
-      toast.success(`PO-${r.po_id} created.`);
-      nav(`/purchase-orders/${r.po_id}`);
+      if (editing) {
+        await ordersApi.update(id, { order_date: orderDate, expected_delivery_date: expected, remarks, products });
+        toast.success(resubmit ? `PO-${id} resubmitted for approval.` : `PO-${id} updated.`);
+        nav(`/purchase-orders/${id}`);
+      } else {
+        const r = await ordersApi.create({ vendor_id: Number(vendorId), order_date: orderDate, expected_delivery_date: expected, remarks, products });
+        toast.success(r.status === 'pending_approval' ? `PO-${r.po_id} submitted for approval.` : `PO-${r.po_id} created.`);
+        nav(`/purchase-orders/${r.po_id}`);
+      }
     } catch (ex) { toast.error(ex.message); } finally { setBusy(false); }
   }
 
   return (
     <>
-      <PageHeader back={{ to: '/purchase-orders', label: 'Back', useHistory: true }} title="Refill Stock" sub={<><Link to="/purchase-orders">Purchase Orders</Link> / New order</>} />
+      <PageHeader back={editing ? { to: `/purchase-orders/${id}`, label: `Back to PO-${id}` } : { to: '/purchase-orders', label: 'Back', useHistory: true }}
+        title={editing ? `${resubmit ? 'Edit and resubmit' : 'Edit'} PO-${id}` : 'Refill Stock'}
+        sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {editing ? `PO-${id}` : 'New order'}</>} />
+      {editing && existing.loading && <Spinner />}
+      {editing && existing.error && <div className="card p-6 text-bad" role="alert">{existing.error.message}</div>}
+      {resubmit && existing.data?.po.review_note && (
+        <div className="rounded-md px-4 py-3 mb-4" role="status" style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)' }}>
+          <b>Feedback to fix:</b> <span className="whitespace-pre-wrap">{existing.data.po.review_note}</span>
+        </div>
+      )}
+      {(!editing || existing.data) && (
       <div className="grid gap-4 lg:grid-cols-[1fr_280px] items-start">
         <div>
           <div className="card p-4 mb-3 grid gap-x-4 sm:grid-cols-2">
             <Field label="Vendor" required>
-              <select className="input" value={vendorId} onChange={(e) => pickVendor(e.target.value)}>
+              <select className="input" value={vendorId} disabled={editing} onChange={(e) => pickVendor(e.target.value)}>
                 <option value="">Select a vendor</option>{(vendors.data || []).filter((v) => v.status === 'active').map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
               </select>
             </Field>
@@ -177,7 +234,7 @@ export default function CreateOrder() {
               ))}
               <div className="flex gap-2">
                 <button className="btn" onClick={() => setLines([...lines, { id: uid(), productId: '', variants: [] }])}>Add product</button>
-                <button className="btn" onClick={fromCart}>Load from cart</button>
+                {!editing && <button className="btn" onClick={fromCart}>Load from cart</button>}
               </div>
             </>
           ))}
@@ -189,10 +246,18 @@ export default function CreateOrder() {
           <div className="flex justify-between"><span className="text-muted">Total quantity</span><span>{totalQty}</span></div>
           <div className="flex justify-between font-semibold text-base mt-2 pt-2 border-t border-line"><span>Order value</span><span>{inr(total)}</span></div>
           {errors.length > 0 && <ul role="alert" className="text-bad text-xs mt-3 pl-4 mb-0">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-          <button className="btn btn-primary w-full mt-4" disabled={busy} onClick={submit}>{busy ? 'Creating…' : 'Create order'}</button>
-          <div className="text-xs text-muted mt-2">The order is saved as Confirmed and the vendor cart is cleared.</div>
+          <button className="btn btn-primary w-full mt-4" disabled={busy} onClick={submit}>
+            {busy ? 'Saving…' : editing ? (resubmit ? 'Resubmit for approval' : 'Save changes') : canApprove ? 'Create order' : 'Submit for approval'}
+          </button>
+          <div className="text-xs text-muted mt-2">
+            {editing
+              ? (resubmit ? 'The order goes back to the Administrator for approval.' : 'The order stays waiting. Approve it from the order page when you are ready.')
+              : canApprove ? 'The order is saved as Confirmed and the vendor cart is cleared.'
+                : 'An Administrator has to approve this order before it is placed. They are notified as soon as you submit it.'}
+          </div>
         </aside>
       </div>
+      )}
     </>
   );
 }

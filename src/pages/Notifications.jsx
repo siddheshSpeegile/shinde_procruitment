@@ -15,6 +15,11 @@ const KIND = {
   order_status: { label: 'Status', bg: 'var(--info-bg)', fg: 'var(--info-fg)' },
   order_date: { label: 'Date', bg: 'var(--warn-bg)', fg: 'var(--warn-fg)' },
   order_payment: { label: 'Payment', bg: 'var(--ok-bg)', fg: 'var(--ok-fg)' },
+  order_submitted: { label: 'Needs approval', bg: 'var(--warn-bg)', fg: 'var(--warn-fg)' },
+  order_resubmitted: { label: 'Resubmitted', bg: 'var(--warn-bg)', fg: 'var(--warn-fg)' },
+  order_approved: { label: 'Approved', bg: 'var(--ok-bg)', fg: 'var(--ok-fg)' },
+  order_rejected: { label: 'Rejected', bg: 'var(--bad-bg)', fg: 'var(--bad-fg)' },
+  order_edited: { label: 'Edited', bg: 'var(--info-bg)', fg: 'var(--info-fg)' },
 };
 const kindOf = (t) => KIND[t] || { label: 'Info', bg: 'var(--neutral-bg)', fg: 'var(--neutral-fg)' };
 const changed = () => window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
