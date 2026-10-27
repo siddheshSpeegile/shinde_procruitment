@@ -647,7 +647,8 @@ def get_variant_sizes():
     if not variant_id:
         return error_response("variantId parameter required", 400)
 
-    sizes = Size.get_all_with_assignment(variant_id)
+    # New clients ask for template=2 and get every UK/EUR size; old app versions get UK Adult 1-12 only.
+    sizes = Size.get_all_with_assignment(variant_id, full_template=request.args.get('template') == '2')
 
     if sizes is None:
         return error_response("Failed to fetch variant sizes", 500)
@@ -677,20 +678,34 @@ def assign_sizes():
 @validate_json('size_value')
 def create_size():
     data = request.get_json()
-    size_id = Size.create(data.get('size_value'), updated_by=data.get('updated_by'))
+    # Older clients send only size_value: that is a UK Adult size.
+    system = data.get('size_system') or 'UK'
+    group = data.get('size_group') or 'Adult'
+    problem = Size.check(system, group, data.get('size_value'))
+    if problem:
+        return error_response(problem, 400)
+    size_id = Size.create(data.get('size_value'), system, group, updated_by=data.get('updated_by'))
     if size_id:
         return success_response({'size_id': size_id}, "Size created successfully", 201)
-    return error_response("Failed to create size - value may already exist", 500)
- 
+    return error_response("Failed to create size - this size already exists in that list", 409)
+
 @products_bp.route('/sizes/<int:size_id>', methods=['PUT'])
 def update_size(size_id):
     data = request.get_json()
+    current = Size.get_by_id(size_id)
+    if not current:
+        return error_response("Failed to update size - check the size_id exists", 404)
     allowed = ['size_value']
     fields = {k: v for k, v in data.items() if k in allowed}
+    if 'size_value' in fields:
+        problem = Size.check(current['size_system'], current['size_group'], fields['size_value'])
+        if problem:
+            return error_response(problem, 400)
+        fields['size_value'] = str(fields['size_value']).strip().upper()
     rows = Size.update(size_id, updated_by=data.get('updated_by'), **fields)
     if rows:
         return success_response({'size_id': size_id}, "Size updated successfully")
-    return error_response("Failed to update size - check the size_id exists", 404)
+    return error_response("Failed to update size - it may already exist in that list", 409)
  
 @products_bp.route('/sizes/<int:size_id>/status', methods=['PATCH'])
 @validate_json('status')

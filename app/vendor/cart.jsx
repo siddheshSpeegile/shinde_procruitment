@@ -461,6 +461,9 @@ export default function CartListScreen() {
         p.variants[row.variant_id].sizes.push({
           size_id: row.size_id,
           size_value: row.size_value,
+          size_label: row.size_label,
+          size_system: row.size_system,
+          size_group: row.size_group,
         });
       });
 
@@ -605,11 +608,11 @@ export default function CartListScreen() {
                     {item.variant_count ?? 0}
                   </Text>
                 </View>
-                {item.selected_sizes && item.selected_sizes.length > 0 && (
+                {(item.selected_size_labels || item.selected_sizes) && (item.selected_size_labels || item.selected_sizes).length > 0 && (
                   <View style={styles.sizesRow}>
                     <Text style={styles.sizesLabel}>Sizes:</Text>
                     <Text style={styles.sizesValue} numberOfLines={1}>
-                      {item.selected_sizes.join(", ")}
+                      {(item.selected_size_labels || item.selected_sizes).join(", ")}
                     </Text>
                   </View>
                 )}

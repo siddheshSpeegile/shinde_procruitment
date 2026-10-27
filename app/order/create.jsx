@@ -406,7 +406,7 @@ export default function CreatePurchaseOrderScreen() {
             code: p.code || p.v_prod_id,
             name: p.name || p.product_name,
             image: p.image || p.photo_url,
-            size: s.size_value,
+            size: s.size_label || s.size_value,
           });
         });
       });
@@ -438,7 +438,7 @@ export default function CreatePurchaseOrderScreen() {
       code: variant?.code,
       name: variant?.name,
       image: variant?.image,
-      size: s.size_value,
+      size: s.size_label || s.size_value,
     }));
   }
 

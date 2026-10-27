@@ -15,6 +15,11 @@ import Svg, { Path } from "react-native-svg";
 import { apiFetch } from "../../api/config";
 import NavBar from "../../components/NavBar";
 
+// Sizes follow the template UK / EUR x Toddler / Adult: two rows of tabs choose the list, ticks are
+// kept across tabs. Tab counts show how many sizes are ticked in each.
+const SYSTEMS = ["UK", "EUR"];
+const GROUPS = ["Toddler", "Adult"];
+
 // mode='order': only shows sizes already assigned to this variant, for
 //   picking which of them go into THIS order (no DB write on save).
 export default function AssignSizesScreen() {
@@ -35,19 +40,21 @@ export default function AssignSizesScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCart, setSavingCart] = useState(false);
+  const [system, setSystem] = useState("UK");
+  const [group, setGroup] = useState("Adult");
 
   const fetchSizes = async () => {
     setLoading(true);
     try {
       const data = await apiFetch(
-        `/variant-sizes?variantId=${variant.variant_id}`,
+        `/variant-sizes?variantId=${variant.variant_id}&template=2`,
       );
       if (data.success) {
         const fetched = data.data || [];
         const filtered =
           mode === "order" ? fetched.filter((s) => s.assigned) : fetched;
         const sorted = [...filtered].sort(
-          (a, b) => parseInt(a.size_value, 10) - parseInt(b.size_value, 10),
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.size_id - b.size_id,
         );
         setSizes(sorted);
         const initial = {};
@@ -55,6 +62,12 @@ export default function AssignSizesScreen() {
           initial[s.size_id] = mode === "order" ? true : !!s.assigned;
         });
         setSelected(initial);
+        // Open on the first list that has a ticked size (or the first one there is).
+        const first = sorted.find((s) => initial[s.size_id]) || sorted[0];
+        if (first?.size_system) {
+          setSystem(first.size_system);
+          setGroup(first.size_group);
+        }
       }
     } catch (err) {
       console.error("Failed to load sizes", err);
@@ -76,7 +89,13 @@ export default function AssignSizesScreen() {
     if (selectedIds.length === 0) return;
     const selectedSizeObjects = sizes
       .filter((s) => selectedIds.includes(s.size_id))
-      .map((s) => ({ size_id: s.size_id, size_value: s.size_value }));
+      .map((s) => ({
+        size_id: s.size_id,
+        size_value: s.size_value,
+        size_label: s.size_label,
+        size_system: s.size_system,
+        size_group: s.size_group,
+      }));
 
     if (mode === "declare") {
       // Persist which sizes this variant is available in.
@@ -152,6 +171,38 @@ export default function AssignSizesScreen() {
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
 
+  // Which lists exist (for ordering, only the lists that hold assigned sizes) and the sizes of the open list.
+  const countIn = (test) =>
+    sizes.filter((s) => selected[s.size_id] && test(s)).length;
+  const systemsShown = SYSTEMS.filter((x) =>
+    sizes.some((s) => s.size_system === x),
+  );
+  const groupsShown = GROUPS.filter((g) =>
+    sizes.some((s) => s.size_system === system && s.size_group === g),
+  );
+  const listSizes = sizes.filter(
+    (s) => s.size_system === system && s.size_group === group,
+  );
+  const listAllOn =
+    listSizes.length > 0 && listSizes.every((s) => selected[s.size_id]);
+  const toggleList = () =>
+    setSelected((prev) => {
+      const next = { ...prev };
+      listSizes.forEach((s) => {
+        next[s.size_id] = !listAllOn;
+      });
+      return next;
+    });
+  const pickSystem = (x) => {
+    setSystem(x);
+    // keep the category if that system has it, else use its first one
+    const g = GROUPS.find((y) =>
+      sizes.some((s) => s.size_system === x && s.size_group === y),
+    );
+    if (!sizes.some((s) => s.size_system === x && s.size_group === group) && g)
+      setGroup(g);
+  };
+
   const numColumns = width >= 600 ? 6 : 4;
   const gap = 12;
   const sidePadding = 20;
@@ -216,8 +267,47 @@ export default function AssignSizesScreen() {
             <Text style={styles.assignedTitle}>
               Assigned Size ({selectedCount})
             </Text>
+            <View style={styles.tabRow}>
+              {systemsShown.map((x) => (
+                <TouchableOpacity
+                  key={x}
+                  onPress={() => pickSystem(x)}
+                  style={[styles.tab, system === x && styles.tabOn]}
+                >
+                  <Text style={[styles.tabText, system === x && styles.tabTextOn]}>
+                    {x}
+                    {countIn((s) => s.size_system === x)
+                      ? `  (${countIn((s) => s.size_system === x)})`
+                      : ""}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.tabRow}>
+              {groupsShown.map((g) => (
+                <TouchableOpacity
+                  key={g}
+                  onPress={() => setGroup(g)}
+                  style={[styles.tab, group === g && styles.tabOn]}
+                >
+                  <Text style={[styles.tabText, group === g && styles.tabTextOn]}>
+                    {g}
+                    {countIn((s) => s.size_system === system && s.size_group === g)
+                      ? `  (${countIn((s) => s.size_system === system && s.size_group === g)})`
+                      : ""}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {mode === "declare" && listSizes.length > 0 ? (
+                <TouchableOpacity onPress={toggleList} style={styles.selectAll}>
+                  <Text style={styles.selectAllText}>
+                    {listAllOn ? "Clear list" : "Select all"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <View style={[styles.grid, { gap }]}>
-              {sizes.map((s) => {
+              {listSizes.map((s) => {
                 const on = selected[s.size_id];
                 return (
                   <TouchableOpacity
@@ -346,6 +436,20 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" },
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#dcd6d2",
+    backgroundColor: "#fff",
+  },
+  tabOn: { backgroundColor: "#8a3230", borderColor: "#8a3230" },
+  tabText: { fontSize: 14, fontWeight: "700", color: "#3a2b28" },
+  tabTextOn: { color: "#fff" },
+  selectAll: { marginLeft: "auto", paddingHorizontal: 6, paddingVertical: 8 },
+  selectAllText: { fontSize: 14, fontWeight: "700", color: "#8a3230" },
   sizeTile: {
     width: "100%",
     height: "100%",

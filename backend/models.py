@@ -1,3 +1,4 @@
+import re
 import time
 import psycopg2
 from database import db
@@ -882,51 +883,77 @@ class Variant:
 #         return db.execute_query(query, (variant_id,))
 
 class Size:
-    """Size model"""
+    """Size model. Sizes follow the template UK / EUR x Toddler / Adult (see migrations/009_size_template.sql)."""
+
+    SYSTEMS = ('UK', 'EUR')
+    GROUPS = ('Toddler', 'Adult')
+    # The numbers allowed in each list; UK Toddler also has 0K to 13K.
+    RANGES = {('UK', 'Toddler'): (1, 5), ('UK', 'Adult'): (1, 18), ('EUR', 'Toddler'): (18, 30), ('EUR', 'Adult'): (31, 46)}
+
+    # Columns every size query returns, so clients can group and label sizes ("UK Adult 8").
+    COLS = ("s.size_id, s.size_value, s.size_system, s.size_group, s.sort_order, "
+            "(s.size_system || ' ' || s.size_group || ' ' || s.size_value) AS size_label")
 
     @staticmethod
-    def get_all():
-        query = "SELECT * FROM size WHERE status = 'active' ORDER BY size_value"
+    def check(size_system, size_group, size_value):
+        """Error text if this is not a size of the template, else None."""
+        if size_system not in Size.SYSTEMS or size_group not in Size.GROUPS:
+            return "Choose UK or EUR, and Toddler or Adult."
+        value = str(size_value or '').strip().upper()
+        lo, hi = Size.RANGES[(size_system, size_group)]
+        if size_system == 'UK' and size_group == 'Toddler' and re.fullmatch(r'(0|[1-9]|1[0-3])K', value):
+            return None
+        if re.fullmatch(r'[1-9][0-9]*', value) and lo <= int(value) <= hi:
+            return None
+        extra = ' or 0K to 13K' if (size_system, size_group) == ('UK', 'Toddler') else ''
+        return f"{size_system} {size_group} sizes are {lo} to {hi}{extra}."
+
+    @staticmethod
+    def get_all(include_inactive=False):
+        where = "" if include_inactive else "WHERE s.status = 'active'"
+        query = f"SELECT {Size.COLS}, s.status FROM size s {where} ORDER BY s.sort_order, s.size_id"
         return db.execute_query(query)
 
     @staticmethod
     def get_available_for_variant(variant_id):
-        query = """
-        SELECT s.* FROM size s
+        query = f"""
+        SELECT {Size.COLS} FROM size s
         WHERE s.status = 'active'
         AND s.size_id NOT IN (SELECT size_id FROM variant_size WHERE variant_id = %s)
-        ORDER BY s.size_value
+        ORDER BY s.sort_order, s.size_id
         """
         return db.execute_query(query, (variant_id,))
 
     @staticmethod
-    def get_all_with_assignment(variant_id):
-        """Sizes 1-12, each flagged with whether it's assigned to this variant.
-        size_value is stored as text, so we only cast/sort numerically the
-        rows that are actually plain numbers - this also fixes the old
-        alphabetical sort bug (10, 11, 12... 5, 6, 7 instead of 1, 2, 3...)."""
-        query = """
-        SELECT s.size_id, s.size_value,
+    def get_all_with_assignment(variant_id, full_template=False):
+        """Every active size of the template, each flagged with whether it is assigned to this variant.
+        Old app versions do not know about the template and still expect plain sizes 1-12, so unless
+        full_template is set only UK Adult 1-12 are returned."""
+        legacy = "" if full_template else "AND s.size_system = 'UK' AND s.size_group = 'Adult' AND s.size_value ~ '^[0-9]+$' AND s.size_value::int BETWEEN 1 AND 12"
+        query = f"""
+        SELECT {Size.COLS},
                EXISTS (
                    SELECT 1 FROM variant_size vs
                    WHERE vs.variant_id = %s AND vs.size_id = s.size_id
                ) AS assigned
         FROM size s
-        WHERE s.status = 'active'
-          AND s.size_value ~ '^[0-9]+$'
-          AND s.size_value::int BETWEEN 1 AND 12
-        ORDER BY s.size_value::int
+        WHERE s.status = 'active' {legacy}
+        ORDER BY s.sort_order, s.size_id
         """
         return db.execute_query(query, (variant_id,))
 
     @staticmethod
-    def create(size_value, updated_by=None):
+    def create(size_value, size_system='UK', size_group='Adult', updated_by=None):
+        value = str(size_value).strip().upper()
         query = """
-        INSERT INTO size (size_value, status, updated_by, created_date, updated_date)
-        VALUES (%s, 'active', %s, NOW(), NOW())
+        INSERT INTO size (size_value, size_system, size_group, sort_order, status, updated_by, created_date, updated_date)
+        VALUES (%s, %s, %s, %s, 'active', %s, NOW(), NOW())
         RETURNING size_id
         """
-        return db.execute_insert(query, (size_value, updated_by))
+        base = {('UK', 'Toddler'): 100, ('UK', 'Adult'): 200, ('EUR', 'Toddler'): 300, ('EUR', 'Adult'): 400}[(size_system, size_group)]
+        number = int(value[:-1] if value.endswith('K') else value)
+        order = base + number + (0 if value.endswith('K') or (size_system, size_group) != ('UK', 'Toddler') else 20)
+        return db.execute_insert(query, (value, size_system, size_group, order, updated_by))
 
     @staticmethod
     def update(size_id, updated_by=None, **fields):
@@ -939,6 +966,11 @@ class Size:
         query = f"UPDATE size SET {set_clause}, updated_by = %s, updated_date = NOW() WHERE size_id = %s"
         values.extend([updated_by, size_id])
         return db.execute_update(query, tuple(values))
+
+    @staticmethod
+    def get_by_id(size_id):
+        rows = db.execute_query("SELECT size_id, size_value, size_system, size_group FROM size WHERE size_id = %s", (size_id,))
+        return rows[0] if rows else None
 
     @staticmethod
     def update_status(size_id, status, updated_by=None):
@@ -989,7 +1021,8 @@ class Cart:
         query = """
         SELECT c.*, p.v_prod_id, p.product_name, p.photo_url,
                COUNT(DISTINCT v.variant_id) as variant_count,
-               ARRAY_AGG(DISTINCT s.size_value) FILTER (WHERE s.size_value IS NOT NULL) as selected_sizes
+               ARRAY_AGG(DISTINCT s.size_value) FILTER (WHERE s.size_value IS NOT NULL) as selected_sizes,
+               ARRAY_AGG(DISTINCT (s.size_system || ' ' || s.size_group || ' ' || s.size_value)) FILTER (WHERE s.size_value IS NOT NULL) as selected_size_labels
         FROM cart c
         JOIN product p ON c.product_id = p.product_id
         LEFT JOIN variant v ON v.product_id = p.product_id
@@ -1066,7 +1099,8 @@ class Cart:
         query = """
         SELECT p.product_id, p.v_prod_id, p.product_name, p.photo_url, p.price,
                v.variant_id, cat.category_name, pat.pattern_name, col.color_name, col.hex_code,
-               s.size_id, s.size_value
+               s.size_id, s.size_value, s.size_system, s.size_group,
+               (s.size_system || ' ' || s.size_group || ' ' || s.size_value) AS size_label
         FROM cart c
         JOIN cart_size cs ON cs.cart_id = c.cart_id
         JOIN product p ON p.product_id = c.product_id
@@ -1076,7 +1110,7 @@ class Cart:
         LEFT JOIN color col ON col.color_id = v.color_id
         JOIN size s ON s.size_id = cs.size_id
         WHERE c.vendor_id = %s
-        ORDER BY p.product_id, v.variant_id, s.size_value
+        ORDER BY p.product_id, v.variant_id, s.sort_order
         """
         return db.execute_query(query, (vendor_id,)) or []
 
@@ -1429,11 +1463,12 @@ class PurchaseOrder:
 
         # Get size details
         size_query = """
-        SELECT psd.*, s.size_value
+        SELECT psd.*, s.size_value, s.size_system, s.size_group,
+               (s.size_system || ' ' || s.size_group || ' ' || s.size_value) AS size_label
         FROM po_size_detail psd
         JOIN size s ON psd.size_id = s.size_id
         WHERE psd.po_id = %s
-        ORDER BY s.size_value
+        ORDER BY s.sort_order, s.size_id
         """
         po['sizes'] = db.execute_query(size_query, (po_id,))
 

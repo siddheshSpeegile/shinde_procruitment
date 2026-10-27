@@ -15,6 +15,7 @@ from routes.roles import roles_bp
 from routes.notifications import notifications_bp
 from routes.users import users_bp
 from routes.audit import audit_bp
+from routes.order_drafts import order_drafts_bp
 from audit_log import record_request
 from security import guard, add_headers
 
@@ -46,6 +47,7 @@ app.register_blueprint(roles_bp)
 app.register_blueprint(notifications_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(audit_bp)
+app.register_blueprint(order_drafts_bp)
 
 
 @app.before_request

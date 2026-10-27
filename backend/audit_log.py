@@ -15,6 +15,7 @@ from utils import user_id_from_token
 CHANGING = ('POST', 'PUT', 'PATCH', 'DELETE')
 # Not worth logging: they only mark things read or look up prices.
 SKIP = ('/api/audit-logs', '/api/notifications/read', '/api/pricing/last-batch')
+SKIP_PREFIX = ('/api/order-drafts',)  # saving a draft is not a business change
 SECRET = re.compile(r'pass(word)?|secret|token', re.I)
 MAX_DETAILS = 4000  # characters
 RETENTION_DAYS = 90  # older entries are deleted automatically
@@ -110,7 +111,7 @@ def record_request(response):
     try:
         path = request.path
         if (request.method not in CHANGING or not path.startswith('/api/') or path in SKIP
-                or not 200 <= response.status_code < 300):
+                or path.startswith(SKIP_PREFIX) or not 200 <= response.status_code < 300):
             return
         is_json = response.mimetype == 'application/json'
         data = response.get_json(silent=True) if is_json else None

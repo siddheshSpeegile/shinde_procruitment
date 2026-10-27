@@ -552,7 +552,7 @@ import NavBar from "../../components/NavBar";
 // than the screen and scroll horizontally instead of squeezing every
 // column (especially Qty's two +/- buttons) into an equal flex share
 // that's too narrow to fit its own content.
-const COLUMN_WIDTHS = [56, 96, 64, 84, 72, 96];
+const COLUMN_WIDTHS = [76, 96, 64, 84, 72, 96];
 
 // Same generalization as order/create.jsx: accepts productsJson (one or
 // many products, each with one or many variants/sizes) so this single
@@ -588,6 +588,8 @@ export default function ProductDetailsScreen() {
             color_name: v.color_name,
             size_id: s.size_id,
             size_value: s.size_value,
+            size_system: s.size_system,
+            size_group: s.size_group,
             code: p.code || p.v_prod_id,
             name: p.name || p.product_name,
             image: p.image || p.photo_url,
@@ -950,11 +952,14 @@ export default function ProductDetailsScreen() {
               const key = rowKey(r);
               return (
                 <View key={key} style={styles.tableRow}>
-                  <Text
-                    style={[styles.tableCellSize, { width: COLUMN_WIDTHS[0] }]}
-                  >
-                    {r.size_value}
-                  </Text>
+                  <View style={{ width: COLUMN_WIDTHS[0], alignItems: "center" }}>
+                    <Text style={styles.tableCellSize}>{r.size_value}</Text>
+                    {r.size_system && r.size_group ? (
+                      <Text style={styles.tableCellSizeNote}>
+                        {r.size_system} {r.size_group}
+                      </Text>
+                    ) : null}
+                  </View>
                   <View style={[styles.qtyCell, { width: COLUMN_WIDTHS[1] }]}>
                     <TouchableOpacity
                       onPress={() => changeQty(key, -1)}
@@ -1247,6 +1252,7 @@ const styles = StyleSheet.create({
     color: "#1c1210",
     textAlign: "center",
   },
+  tableCellSizeNote: { fontSize: 9.5, color: "#8a7c78", textAlign: "center" },
   tableCellStatic: {
     fontSize: 13,
     fontWeight: "700",
