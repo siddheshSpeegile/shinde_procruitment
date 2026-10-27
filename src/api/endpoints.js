@@ -53,7 +53,8 @@ export const variantsApi = {
   list: (productId) => api.get('/variants', { productId }),
   get: (id) => api.get(`/variants/${id}`),
   createQuick: (b) => api.post('/variants/quick', b),
-  sizes: (variantId) => api.get('/variant-sizes', { variantId }),
+  // template: 2 = the UK / EUR, Toddler / Adult size template (without it the server returns only UK Adult 1-12).
+  sizes: (variantId) => api.get('/variant-sizes', { variantId, template: 2 }),
   assignSizes: (variant_id, size_ids) => api.post('/assign-sizes', { variant_id, size_ids }),
 };
 
@@ -82,6 +83,15 @@ export const usersApi = {
 
 export const auditApi = {
   list: ({ source, limit = 300 } = {}) => api.get('/audit-logs', { source: source || '', limit }),
+};
+
+// Unfinished order forms saved on the server (private to the user who saved them).
+export const draftsApi = {
+  list: () => api.get('/order-drafts'),
+  get: (id) => api.get(`/order-drafts/${id}`),
+  create: (form) => api.post('/order-drafts', { form }),
+  update: (id, form) => api.put(`/order-drafts/${id}`, { form }),
+  remove: (id) => api.del(`/order-drafts/${id}`),
 };
 
 export const cartApi = {

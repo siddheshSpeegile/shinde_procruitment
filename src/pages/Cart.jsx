@@ -28,7 +28,7 @@ export default function Cart() {
             { header: 'Image', render: (c) => <Thumb src={c.photo_url} /> },
             { header: 'Product', render: (c) => <div><div className="font-medium">{c.product_name}</div><div className="text-xs text-muted font-mono">{c.v_prod_id}</div></div> },
             { header: 'Variants', key: 'variant_count' },
-            { header: 'Selected sizes', render: (c) => (c.selected_sizes || []).join(', ') || '-' },
+            { header: 'Selected sizes', render: (c) => (c.selected_size_labels || c.selected_sizes || []).join(', ') || '-' },
             { header: 'Added', render: (c) => fmtDate(c.created_date) },
           ]} />
       )}

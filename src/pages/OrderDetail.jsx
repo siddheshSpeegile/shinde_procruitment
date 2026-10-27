@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { masterApi, ordersApi, variantsApi, vendorsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { Can, Confirm, ErrorState, Modal, PageHeader, Pill, Spinner, StatusPill, Thumb } from '../components/ui';
 import { downloadCsv, fmtDate, inr, isoDate, num, today } from '../lib/format';
+import { groupSizes, sizeLabel } from '../lib/sizes';
 
 async function load(id) {
   const po = await ordersApi.get(id);
@@ -75,7 +76,7 @@ export default function OrderDetail() {
     const out = [['PO', 'Vendor', 'Product code', 'Product', 'Variant', 'Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount']];
     Object.entries(groups).forEach(([pid, vs]) => {
       const p = po.products.find((x) => String(x.product_id) === String(pid));
-      vs.forEach(({ v, rows }) => rows.forEach((s) => out.push([`PO-${po.po_id}`, vendor?.vendor_name, p?.v_prod_id, p?.product_name, v?.label, s.size_value, s.qty, s.cost, s.mrp, s.gst, num(s.cost) * num(s.qty)])));
+      vs.forEach(({ v, rows }) => rows.forEach((s) => out.push([`PO-${po.po_id}`, vendor?.vendor_name, p?.v_prod_id, p?.product_name, v?.label, sizeLabel(s), s.qty, s.cost, s.mrp, s.gst, num(s.cost) * num(s.qty)])));
     });
     downloadCsv(`PO-${po.po_id}.csv`, out);
   }
@@ -141,11 +142,15 @@ export default function OrderDetail() {
                 <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th text-right first:text-left">{h}</th>)}</tr></thead>
-                  <tbody>{rows.map((s) => (
-                    <tr key={s.po_size_id ?? `${vid}-${s.size_id}`}>
-                      <td className="td">{s.size_value}</td><td className="td text-right">{num(s.qty)}</td><td className="td text-right">{inr(s.cost)}</td>
-                      <td className="td text-right">{inr(s.mrp)}</td><td className="td text-right">{num(s.gst)}</td><td className="td text-right">{inr(num(s.cost) * num(s.qty))}</td>
-                    </tr>))}</tbody>
+                  <tbody>{groupSizes(rows).map((g) => (
+                    <Fragment key={g.title || 'sizes'}>
+                      {g.title && <tr><td colSpan={6} className="td text-xs font-semibold uppercase tracking-wide text-muted bg-surface2">{g.title}</td></tr>}
+                      {g.items.map((s) => (
+                        <tr key={s.po_size_id ?? `${vid}-${s.size_id}`}>
+                          <td className="td">{s.size_value}</td><td className="td text-right">{num(s.qty)}</td><td className="td text-right">{inr(s.cost)}</td>
+                          <td className="td text-right">{inr(s.mrp)}</td><td className="td text-right">{num(s.gst)}</td><td className="td text-right">{inr(num(s.cost) * num(s.qty))}</td>
+                        </tr>))}
+                    </Fragment>))}</tbody>
                 </table>
                 </div>
               </div>

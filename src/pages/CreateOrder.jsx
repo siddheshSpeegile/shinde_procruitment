@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { cartApi, masterApi, ordersApi, productsApi, suggestionsApi, variantsApi, vendorsApi } from '../api/endpoints';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { cartApi, draftsApi, masterApi, ordersApi, productsApi, suggestionsApi, variantsApi, vendorsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { Field, PageHeader, Spinner, Swatch } from '../components/ui';
-import { inr, isoDate, num, today, variantLabel } from '../lib/format';
+import { Field, Modal, PageHeader, Spinner, Swatch } from '../components/ui';
+import { inr, isoDate, num, timeAgo, today, variantLabel } from '../lib/format';
+import { groupTitle } from '../lib/sizes';
 
 const uid = () => Math.random().toString(36).slice(2);
-const sizeRow = (s, p = {}) => ({ size_id: s.size_id, size_value: s.size_value, qty: '', cost: p.cost ?? '', mrp: p.mrp ?? '', gst: p.gst ?? '' });
+// Cost starts at the product's own price (as in the mobile app); MRP and GST come from the last order, if there was one.
+const sizeRow = (s, p = {}, price) => ({ size_id: s.size_id, size_value: s.size_value, size_system: s.size_system, size_group: s.size_group, size_label: s.size_label, qty: '', cost: price != null && price !== '' ? String(Number(price)) : (p.cost ?? ''), mrp: p.mrp ?? '', gst: p.gst ?? '' });
 
 function ProductBlock({ line, products, onChange, onRemove }) {
   const toast = useToast();
@@ -23,7 +25,7 @@ function ProductBlock({ line, products, onChange, onRemove }) {
       const sizes = (await variantsApi.sizes(v.variant_id)).filter((s) => s.assigned);
       if (!sizes.length) { toast.error('This variant has no sizes yet. Assign sizes under Products > Variants first.'); return; }
       const pr = await ordersApi.lastPricing(sizes.map((s) => ({ variant_id: v.variant_id, size_id: s.size_id, product_id: line.productId })));
-      onChange({ ...line, variants: [...line.variants, { variantId: v.variant_id, label: variantLabel(v), hex: v.hex_code, sizes: sizes.map((s) => sizeRow(s, pr.find((x) => x.size_id === s.size_id))) }] });
+      onChange({ ...line, variants: [...line.variants, { variantId: v.variant_id, label: variantLabel(v), hex: v.hex_code, sizes: sizes.map((s) => sizeRow(s, pr.find((x) => x.size_id === s.size_id), products.find((x) => String(x.product_id) === String(line.productId))?.price)) }] });
     } catch (e) { toast.error(e.message); } finally { setAdding(false); }
   }
 
@@ -51,13 +53,18 @@ function ProductBlock({ line, products, onChange, onRemove }) {
               <table className="w-full border-collapse">
                 <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
                 <tbody>{v.sizes.map((s, si) => (
-                  <tr key={s.size_id}>
-                    <td className="td w-16">{s.size_value}</td>
-                    {['qty', 'cost', 'mrp', 'gst'].map((k) => (
-                      <td key={k} className="td"><input className="input h-8 w-24" type="number" min="0" step={k === 'qty' ? '1' : 'any'} aria-label={`${k} for size ${s.size_value}`} value={s[k]} onChange={(e) => setCell(vi, si, k, e.target.value)} list={k === 'gst' ? 'gst-list' : undefined} /></td>
-                    ))}
-                    <td className="td">{inr(num(s.qty) * num(s.cost))}</td>
-                  </tr>))}</tbody>
+                  <Fragment key={s.size_id}>
+                    {groupTitle(s) && (si === 0 || groupTitle(v.sizes[si - 1]) !== groupTitle(s)) && (
+                      <tr><td colSpan={6} className="td text-xs font-semibold uppercase tracking-wide text-muted bg-surface2">{groupTitle(s)}</td></tr>
+                    )}
+                    <tr>
+                      <td className="td w-16">{s.size_value}</td>
+                      {['qty', 'cost', 'mrp', 'gst'].map((k) => (
+                        <td key={k} className="td"><input className="input h-8 w-24" type="number" min="0" step={k === 'qty' ? '1' : 'any'} aria-label={`${k} for size ${s.size_label || s.size_value}`} value={s[k]} onChange={(e) => setCell(vi, si, k, e.target.value)} list={k === 'gst' ? 'gst-list' : undefined} /></td>
+                      ))}
+                      <td className="td">{inr(num(s.qty) * num(s.cost))}</td>
+                    </tr>
+                  </Fragment>))}</tbody>
               </table>
               </div>
             </div>
@@ -95,7 +102,7 @@ async function loadForEdit(id) {
         variantId: vid, label: variantLabel(row), hex: row.hex_code,
         sizes: sizeLists[i].filter((s) => s.assigned || po.sizes.some((p) => p.variant_id === vid && p.size_id === s.size_id)).map((s) => {
           const ex = po.sizes.find((p) => p.variant_id === vid && p.size_id === s.size_id);
-          return { size_id: s.size_id, size_value: s.size_value, qty: ex ? String(ex.qty) : '', cost: ex ? String(num(ex.cost)) : '', mrp: ex ? String(num(ex.mrp)) : '', gst: ex ? String(num(ex.gst)) : '' };
+          return { size_id: s.size_id, size_value: s.size_value, size_system: s.size_system, size_group: s.size_group, size_label: s.size_label, qty: ex ? String(ex.qty) : '', cost: ex ? String(num(ex.cost)) : '', mrp: ex ? String(num(ex.mrp)) : '', gst: ex ? String(num(ex.gst)) : '' };
         }),
       };
     }),
@@ -132,6 +139,65 @@ export default function CreateOrder() {
     setRemarks(d.po.remarks || ''); setLines(d.lines);
   }, [existing.data]);
 
+  // ---- drafts: an unfinished form can be saved on the server and continued later from Purchase Orders
+  const loc = useLocation();
+  const draftParam = editing ? null : sp.get('draft');
+  const loadedDraft = useAsync(() => draftsApi.get(draftParam), [draftParam], { enabled: !!draftParam });
+  const [draftId, setDraftId] = useState(null);
+  const [draftTime, setDraftTime] = useState(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [baseline, setBaseline] = useState(''); // the form as last saved; anything different is unsaved work
+  const leaving = useRef(false); // set just before we leave on purpose, so no question is asked
+
+  const snap = (f) => JSON.stringify([f.vendor_id, f.order_date, f.expected, f.remarks, f.lines]);
+  const snapshot = snap({ vendor_id: vendorId, order_date: orderDate, expected, remarks, lines });
+  const hasContent = lines.some((l) => l.productId) || remarks.trim() !== '' || expected !== '';
+  const dirty = !editing && hasContent && snapshot !== baseline;
+
+  useEffect(() => {
+    const d = loadedDraft.data;
+    if (!d) return;
+    const f = { vendor_id: String(d.form.vendor_id ?? ''), order_date: d.form.order_date || today(), expected: d.form.expected || '', remarks: d.form.remarks || '', lines: d.form.lines || [] };
+    setVendorId(f.vendor_id); setOrderDate(f.order_date); setExpected(f.expected); setRemarks(f.remarks); setLines(f.lines);
+    setDraftId(d.id); setDraftTime(d.updated_at); setBaseline(snap(f));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedDraft.data]);
+
+  // Opening the plain "new order" link while a draft is on screen starts a blank form.
+  useEffect(() => {
+    if (editing || draftParam || !draftId) return;
+    setDraftId(null); setDraftTime(null); setVendorId(''); setOrderDate(today()); setExpected(''); setRemarks(''); setLines([]); setBaseline('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftParam]);
+
+  useEffect(() => { leaving.current = false; }, [loc.key]);
+
+  const sameLocation = (a, b) => a.pathname + a.search === b.pathname + b.search;
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && !leaving.current && !sameLocation(currentLocation, nextLocation));
+
+  useEffect(() => { // refresh / closing the tab: the browser shows its own warning
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  async function saveDraft() {
+    const form = { vendor_id: vendorId ? Number(vendorId) : null, order_date: orderDate, expected, remarks, lines };
+    setSavingDraft(true);
+    try {
+      if (draftId) await draftsApi.update(draftId, form);
+      else setDraftId((await draftsApi.create(form)).id);
+      setDraftTime(new Date().toISOString()); setBaseline(snapshot);
+      toast.success('Draft saved. Find it under Purchase Orders, Your drafts.');
+      return true;
+    } catch (e) { toast.error(e.message); return false; } finally { setSavingDraft(false); }
+  }
+  async function leaveAndSave() {
+    if (await saveDraft()) { leaving.current = true; blocker.proceed(); } else blocker.reset();
+  }
+  function leaveAndDiscard() { leaving.current = true; blocker.proceed(); }
+
   const pickVendor = (v) => { setVendorId(v); setLines([]); };
 
   async function fromCart() {
@@ -145,7 +211,7 @@ export default function CreateOrder() {
         if (!l) out.push((l = { id: uid(), productId: String(r.product_id), variants: [] }));
         let v = l.variants.find((x) => x.variantId === r.variant_id);
         if (!v) l.variants.push((v = { variantId: r.variant_id, label: variantLabel(r), hex: r.hex_code, sizes: [] }));
-        v.sizes.push(sizeRow(r, pr[i]));
+        v.sizes.push(sizeRow(r, pr[i], r.price));
       });
       setLines(out);
       toast.success('Cart loaded. Enter quantities and prices.');
@@ -188,10 +254,13 @@ export default function CreateOrder() {
       if (editing) {
         await ordersApi.update(id, { order_date: orderDate, expected_delivery_date: expected, remarks, products });
         toast.success(resubmit ? `PO-${id} resubmitted for approval.` : `PO-${id} updated.`);
+        leaving.current = true;
         nav(`/purchase-orders/${id}`);
       } else {
         const r = await ordersApi.create({ vendor_id: Number(vendorId), order_date: orderDate, expected_delivery_date: expected, remarks, products });
         toast.success(r.status === 'pending_approval' ? `PO-${r.po_id} submitted for approval.` : `PO-${r.po_id} created.`);
+        if (draftId) draftsApi.remove(draftId).catch(() => { /* the order is placed; a leftover draft can be deleted by hand */ });
+        leaving.current = true;
         nav(`/purchase-orders/${r.po_id}`);
       }
     } catch (ex) { toast.error(ex.message); } finally { setBusy(false); }
@@ -209,6 +278,24 @@ export default function CreateOrder() {
           <b>Feedback to fix:</b> <span className="whitespace-pre-wrap">{existing.data.po.review_note}</span>
         </div>
       )}
+      {draftParam && loadedDraft.loading && <Spinner />}
+      {draftParam && loadedDraft.error && <div className="card p-6 text-bad mb-3" role="alert">{loadedDraft.error.message}</div>}
+      {draftId && (
+        <div className="rounded-md px-4 py-2 mb-3 text-xs" role="status" style={{ background: 'var(--info-bg)', color: 'var(--info-fg)' }}>
+          You are working on a saved draft{draftTime ? ` (saved ${timeAgo(draftTime)})` : ''}. Submitting the order removes the draft.
+        </div>
+      )}
+      <Modal open={blocker.state === 'blocked'} title="Save this order as a draft?" onClose={() => blocker.state === 'blocked' && blocker.reset()}
+        footer={<>
+          <button className="btn" onClick={() => blocker.reset()}>Keep editing</button>
+          <button className="btn btn-danger" onClick={leaveAndDiscard}>Discard</button>
+          <button className="btn btn-primary" disabled={savingDraft} onClick={leaveAndSave}>{savingDraft ? 'Saving…' : 'Save as draft'}</button>
+        </>}>
+        <div className="text-muted">
+          This order has not been submitted yet ({lines.filter((l) => l.productId).length} {lines.filter((l) => l.productId).length === 1 ? 'product' : 'products'} selected).
+          Save it as a draft to continue later from Purchase Orders, or discard it.
+        </div>
+      </Modal>
       {(!editing || existing.data) && (
       <div className="grid gap-4 lg:grid-cols-[1fr_280px] items-start">
         <div>
@@ -249,6 +336,11 @@ export default function CreateOrder() {
           <button className="btn btn-primary w-full mt-4" disabled={busy} onClick={submit}>
             {busy ? 'Saving…' : editing ? (resubmit ? 'Resubmit for approval' : 'Save changes') : canApprove ? 'Create order' : 'Submit for approval'}
           </button>
+          {!editing && (
+            <button className="btn w-full mt-2" disabled={busy || savingDraft || !hasContent || !dirty} onClick={saveDraft}>
+              {savingDraft ? 'Saving…' : draftId && !dirty ? 'Draft saved' : 'Save draft'}
+            </button>
+          )}
           <div className="text-xs text-muted mt-2">
             {editing
               ? (resubmit ? 'The order goes back to the Administrator for approval.' : 'The order stays waiting. Approve it from the order page when you are ready.')

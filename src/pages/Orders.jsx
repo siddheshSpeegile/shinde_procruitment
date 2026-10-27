@@ -1,10 +1,50 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ordersApi, vendorsApi } from '../api/endpoints';
+import { draftsApi, ordersApi, vendorsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
-import { Can, DataTable, PageHeader, Pill, StatusPill, Thumb } from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { Can, Confirm, DataTable, PageHeader, Pill, StatusPill, Thumb } from '../components/ui';
+import { timeAgo } from '../lib/format';
 
 export const deliveryTone = (s) => (s === 'delayed' || s === 'rejected' ? 'bad' : s === 'awaiting_approval' ? 'warn' : s === 'delivered' ? 'ok' : 'info');
+
+/** The signed-in user's saved, unfinished order forms. Shown only when there are some. */
+function Drafts() {
+  const { can } = useAuth();
+  const toast = useToast();
+  const { data, reload } = useAsync(() => draftsApi.list(), [], { enabled: can('purchase_order.create') });
+  const [del, setDel] = useState(null);
+  const [busy, setBusy] = useState(false);
+  if (!data?.length) return null;
+
+  async function remove() {
+    setBusy(true);
+    try { await draftsApi.remove(del.id); toast.success('Draft deleted.'); setDel(null); reload(); }
+    catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="card mb-4" aria-label="Your drafts">
+      <div className="px-4 py-2 border-b border-line">
+        <h2 className="font-serif text-lg m-0">Your drafts <span className="text-muted text-sm">({data.length})</span></h2>
+        <div className="text-xs text-muted">Orders you started and saved. They are not submitted and only you can see them.</div>
+      </div>
+      {data.map((d) => (
+        <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line last:border-0">
+          <div className="flex-1 min-w-[180px]">
+            <div className="font-medium">{d.vendor_name || 'No vendor chosen'}</div>
+            <div className="text-xs text-muted">{d.products} {d.products === 1 ? 'product' : 'products'}, {d.quantity} pieces, saved {timeAgo(d.updated_at)}</div>
+          </div>
+          <Link to={`/refill-stock/new?draft=${d.id}`} className="btn btn-sm btn-primary no-underline">Continue</Link>
+          <button className="btn btn-sm btn-danger" onClick={() => setDel(d)}>Delete</button>
+        </div>
+      ))}
+      <Confirm open={!!del} danger busy={busy} title="Delete this draft?" confirmLabel="Delete draft" onClose={() => setDel(null)} onConfirm={remove}
+        body="The saved order form is removed. This cannot be undone." />
+    </section>
+  );
+}
 
 export default function Orders() {
   const vendors = useAsync(() => vendorsApi.list());
@@ -18,6 +58,7 @@ export default function Orders() {
     <>
       <PageHeader title="Purchase Orders" sub="Filter by vendor, delivery status and expected delivery date."
         actions={<Can perm="purchase_order.create"><Link to="/refill-stock/new" className="btn btn-primary no-underline">New Refill Stock order</Link></Can>} />
+      <Drafts />
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No orders match" emptyHint="Change the filters or create a new order."
         searchText={(o) => `${o.po} ${o.brand}`}
         toolbar={<>

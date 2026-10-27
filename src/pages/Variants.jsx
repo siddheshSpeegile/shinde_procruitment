@@ -8,6 +8,7 @@ import { useForm } from '../hooks/useForm';
 import { useToast } from '../context/ToastContext';
 import { Can, DataTable, Drawer, Field, Modal, PageHeader, Spinner, StatusPill, Swatch } from '../components/ui';
 import { isHex } from '../lib/validate';
+import SizePicker from '../components/SizePicker';
 
 // All photos of the product (cover first) so the user can see the product before choosing a variant.
 function ProductGallery({ product, productId }) {
@@ -124,6 +125,7 @@ function SizeDrawer({ variant, onDone, onClose }) {
   useEffect(() => { if (data) setSel(new Set(data.filter((s) => s.assigned).map((s) => s.size_id))); }, [data]);
 
   const toggle = (id) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleMany = (ids, on) => setSel((p) => { const n = new Set(p); ids.forEach((id) => (on ? n.add(id) : n.delete(id))); return n; });
   async function save() {
     if (!sel.size) { toast.error('Select at least one size.'); return; }
     setBusy(true);
@@ -132,19 +134,12 @@ function SizeDrawer({ variant, onDone, onClose }) {
   }
 
   return (
-    <Drawer open title={`Sizes · ${variant.color_name}`} onClose={onClose}
+    <Drawer open title={`Sizes · ${variant.color_name}`} width={560} onClose={onClose}
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={busy || !sel}>{busy ? 'Saving…' : `Save ${sel ? sel.size : 0} sizes`}</button></>}>
       {loading || !sel ? <Spinner /> : error ? <div className="text-bad">{error.message}</div> : (
         <>
-          <p className="text-muted mt-0">Saving replaces the full selection. Sizes 1 to 12 are listed.</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Sizes">
-            {data.map((s) => (
-              <button key={s.size_id} type="button" aria-pressed={sel.has(s.size_id)} onClick={() => toggle(s.size_id)}
-                className="w-14 h-10 rounded-md border text-sm font-medium" style={sel.has(s.size_id) ? { background: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' } : { background: 'var(--surface)', borderColor: 'var(--line)' }}>
-                {s.size_value}
-              </button>
-            ))}
-          </div>
+          <p className="text-muted mt-0">Pick UK or EUR, then Toddler or Adult, and tick the sizes this variant comes in. You can mix lists. Saving replaces the full selection.</p>
+          <SizePicker sizes={data} selected={sel} onToggle={toggle} onMany={toggleMany} />
         </>
       )}
     </Drawer>
