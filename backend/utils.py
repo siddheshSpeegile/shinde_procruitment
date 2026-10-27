@@ -54,12 +54,13 @@ def validate_json(*required_fields):
 
 
 # ---------------------------------------------------------------------------
-# Signed login tokens. Only the user-management endpoints check them (the rest
-# of the API is still open). A token carries just the user id; the user's
-# status and role are read fresh from the database on every request, so
-# deactivating someone or changing their role takes effect immediately.
+# Signed login tokens, checked on every API request (see security.py). A token
+# carries just the user id (and 'mobile' for the app); the user's status and
+# role are read fresh from the database on every request, so deactivating
+# someone or changing their role takes effect immediately.
 # ---------------------------------------------------------------------------
 TOKEN_MAX_AGE = 60 * 60  # seconds; matches the admin panel's one hour session
+MOBILE_TOKEN_MAX_AGE = 30 * 24 * 60 * 60  # the app stays signed in for 30 days
 _DEFAULT_SECRET = 'dev-secret-key-change-this'
 
 
@@ -67,8 +68,20 @@ def _serializer():
     return URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt='shinde-auth')
 
 
-def make_token(user_id):
-    return _serializer().dumps({'uid': user_id})
+def make_token(user_id, client=None):
+    data = {'uid': user_id}
+    if client == 'mobile':
+        data['c'] = 'mobile'
+    return _serializer().dumps(data)
+
+
+def read_token(token):
+    """User id of a valid, unexpired token. Raises SignatureExpired / BadSignature."""
+    s = _serializer()
+    data = s.loads(token, max_age=MOBILE_TOKEN_MAX_AGE)
+    if data.get('c') != 'mobile':
+        s.loads(token, max_age=TOKEN_MAX_AGE)
+    return data.get('uid')
 
 
 def user_id_from_token(token):
@@ -106,13 +119,13 @@ def require_permission(key):
             if not header.startswith('Bearer '):
                 return error_response("Please sign in again.", 401)
             try:
-                data = _serializer().loads(header[7:], max_age=TOKEN_MAX_AGE)
+                uid = read_token(header[7:])
             except SignatureExpired:
                 return error_response("Your session has ended. Please sign in again.", 401)
             except BadSignature:
                 return error_response("Please sign in again.", 401)
             from models import User
-            user = User.get_by_id(data.get('uid'))
+            user = User.get_by_id(uid)
             if not user or user.get('status') != 'active':
                 return error_response("This account is not active.", 401)
             if not _has_permission(user, key):
@@ -121,3 +134,41 @@ def require_permission(key):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+
+has_permission = _has_permission
+
+
+def _token_user(token, expiring=True):
+    """User row for a token (signature checked), or None. Inactive users never count.
+    expiring=False ignores the token's age."""
+    if not token:
+        return None
+    try:
+        uid = read_token(token) if expiring else _serializer().loads(token).get('uid')
+    except Exception:
+        return None
+    from models import User
+    user = User.get_by_id(uid)
+    return user if user and user.get('status') == 'active' else None
+
+
+def _bearer():
+    header = request.headers.get('Authorization', '')
+    return header[7:] if header.startswith('Bearer ') else ''
+
+
+def current_user_optional():
+    """The signed-in user from a valid, unexpired token, or None. Never rejects the request.
+    Used where the action is allowed for everyone but behaves differently for approvers."""
+    if current_app.config['SECRET_KEY'] == _DEFAULT_SECRET:
+        return None  # tokens could be forged with the public default key
+    return _token_user(_bearer())
+
+
+def notification_viewer():
+    """Who is reading notifications: the token's user (even if the token is older than an hour,
+    because the mobile app stays signed in), or None."""
+    if current_app.config['SECRET_KEY'] == _DEFAULT_SECRET:
+        return None
+    return _token_user(_bearer(), expiring=False)

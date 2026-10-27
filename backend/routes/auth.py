@@ -66,6 +66,8 @@
 from flask import Blueprint, request
 from models import User, Role
 from utils import success_response, error_response, validate_json, hash_password, verify_password, make_token
+from audit_log import request_source
+from security import login_locked, record_failed_login, clear_failed_logins
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -77,16 +79,23 @@ def login():
     username = data.get('username')
     password = data.get('password')
 
+    if not isinstance(username, str) or not isinstance(password, str):
+        return error_response("Enter your username and password.", 400)
+
+    if login_locked(username):
+        return error_response("Too many wrong attempts. Please wait 15 minutes and try again.", 429)
+
     user = User.get_by_username(username)
 
-    if not user:
-        return error_response("User not found", 401)
-
-    if not verify_password(password, user['password_hash']):
-        return error_response("Invalid password", 401)
+    # One message for an unknown user and a wrong password, so usernames cannot be guessed.
+    if not user or not verify_password(password, user['password_hash']):
+        record_failed_login(username)
+        return error_response("Wrong username or password", 401)
 
     if user['status'] != 'active':
         return error_response("User account is inactive", 401)
+
+    clear_failed_logins(username)
 
     # "User".role only allows 'admin' / 'user' (User_role_check); the real
     # role is "User".role_id -> role.role_name, returned as extra fields
@@ -103,8 +112,8 @@ def login():
         'role_id': role_id,
         'role_name': role_row['role_name'] if role_row else None,
         'photo_url': user.get('photo_url'),
-        # Proves who you are to the user-management endpoints (valid for one hour).
-        'token': make_token(user['user_id']),
+        # Proves who you are on every request: one hour for the panel, 30 days for the app.
+        'token': make_token(user['user_id'], 'mobile' if request_source() == 'mobile' else None),
     }
 
     return success_response(response_data, "Login successful")

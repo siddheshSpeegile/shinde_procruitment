@@ -16,6 +16,7 @@ from routes.notifications import notifications_bp
 from routes.users import users_bp
 from routes.audit import audit_bp
 from audit_log import record_request
+from security import guard, add_headers
 
 
 
@@ -30,7 +31,10 @@ app.config['MAX_CONTENT_LENGTH'] = 45 * 1024 * 1024
 # Enable CORS for all routes
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'products')
-CORS(app)
+# Browsers may only call the API from the sites listed in CORS_ORIGINS (comma separated, e.g. the
+# admin panel's address). Not set = any site, as before. The mobile app is not a browser, so it is not affected.
+_origins = [o.strip() for o in os.getenv('CORS_ORIGINS', '').split(',') if o.strip()]
+CORS(app, origins=_origins or '*')
 
 # Register blueprints
 app.register_blueprint(auth_bp)
@@ -46,15 +50,16 @@ app.register_blueprint(audit_bp)
 
 @app.before_request
 def before_request():
-    """Connect to database before each request"""
+    """Connect to database before each request, then require a signed-in user with the right permission"""
     db.connect()
+    return guard()
 
 
 @app.after_request
 def audit_after_request(response):
     """Record successful changes in the audit log (never affects the response)."""
     record_request(response)
-    return response
+    return add_headers(response)
 
 # Legacy: products created before photos moved into the DB (see
 # GET /api/product-photos/<id>) still point at files on disk here.
@@ -84,7 +89,8 @@ if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
         port=5000,
-        debug=True
+        # Debug mode lets anyone who reaches an error page run code, so it is opt-in: FLASK_DEBUG=1
+        debug=os.getenv('FLASK_DEBUG', '') == '1'
     )
 
 

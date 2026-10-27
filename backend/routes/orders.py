@@ -1,7 +1,8 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, g
 from datetime import datetime
 from models import PurchaseOrder, Notification
-from utils import success_response, error_response, validate_json
+from utils import success_response, error_response, validate_json, require_permission, current_user_optional, has_permission
+from audit_log import request_source
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/api')
 
@@ -25,6 +26,36 @@ def _notify(type_, po_id, title, message, actor_id=None):
 
 def _by(name):
     return f" by {name}" if name else ""
+
+
+def _notify_user(type_, po_id, title, message, recipient_id, actor_id=None):
+    """A notification only one user sees (for example the person who created the order)."""
+    if not recipient_id:
+        return
+    try:
+        Notification.create(type_, title, message, po_id=po_id, created_by=actor_id,
+                            audience='user', recipient_user_id=recipient_id)
+    except Exception as e:
+        print(f"Notification error: {e}")
+
+
+def _notify_approvers(type_, po_id, title, message, actor_id=None):
+    """A notification for everyone who can approve purchase orders."""
+    try:
+        Notification.create(type_, title, message, po_id=po_id, created_by=actor_id, audience='approvers')
+    except Exception as e:
+        print(f"Notification error: {e}")
+
+
+def _blocked(old):
+    """Orders that are waiting for approval or rejected can only be changed through approve / reject / edit."""
+    if old and old['status'] in ('pending_approval', 'rejected'):
+        return error_response("This order is waiting for approval or was rejected, so it cannot be changed this way.", 409)
+    return None
+
+
+def _money(info):
+    return f"Rs {float(info['total']):,.0f}" if info else ''
 
 
 @orders_bp.route('/pricing/last-batch', methods=['POST'])
@@ -166,16 +197,31 @@ def create_order():
     if not isinstance(products, list) or len(products) == 0:
         return error_response("products must be a non-empty list", 400)
     
-    po_id = PurchaseOrder.create_order(vendor_id, order_date, products, remarks, expected_delivery_date)
-    
+    # Orders from the mobile app are placed straight away. Orders from the admin panel (or any request we cannot
+    # identify) wait for approval, unless the person creating it is allowed to approve.
+    actor_user = current_user_optional()
+    if request_source() == 'mobile' or (actor_user and has_permission(actor_user, 'purchase_order.approve')):
+        status = 'confirmed'
+    else:
+        status = 'pending_approval'
+    legacy_id, legacy_name = _actor(data)
+    creator_id = actor_user['user_id'] if actor_user else legacy_id
+    creator = actor_user['username'] if actor_user else legacy_name
+
+    po_id = PurchaseOrder.create_order(vendor_id, order_date, products, remarks, expected_delivery_date, status, creator_id)
+
     if po_id:
-        actor_id, actor = _actor(data)
         info = Notification.order_summary(po_id)
+        due = info['expected_delivery_date'].strftime('%d %b %Y') if info and info['expected_delivery_date'] else 'date not set'
+        if status == 'confirmed':
+            if info:
+                _notify('order_created', po_id, f"New order PO-{po_id}",
+                        f"{info['vendor_name']} - {_money(info)} - expected {due}{_by(creator)}", creator_id)
+            return success_response({'po_id': po_id, 'status': status}, "Purchase order created successfully", 201)
         if info:
-            _notify('order_created', po_id, f"New order PO-{po_id}",
-                    f"{info['vendor_name']} - Rs {float(info['total']):,.0f} - expected {info['expected_delivery_date'].strftime('%d %b %Y') if info['expected_delivery_date'] else 'date not set'}{_by(actor)}",
-                    actor_id)
-        return success_response({'po_id': po_id}, "Purchase order created successfully", 201)
+            _notify_approvers('order_submitted', po_id, f"PO-{po_id} needs approval",
+                              f"{info['vendor_name']} - {_money(info)} - expected {due}. Submitted{_by(creator)}. Open it to approve, edit or reject.", creator_id)
+        return success_response({'po_id': po_id, 'status': status}, "Purchase order submitted for approval", 201)
     else:
         return error_response("Failed to create purchase order", 500)
 
@@ -188,6 +234,9 @@ def mark_order_delivered(po_id):
     still returns success, it just won't reset delivered_date."""
     actor_id, actor = _actor(request.get_json(silent=True))
     old = PurchaseOrder.get_by_id(po_id)
+    blocked = _blocked(old)
+    if blocked:
+        return blocked
     rows = PurchaseOrder.mark_delivered(po_id, actor_id)
 
     if rows:
@@ -226,6 +275,9 @@ def update_order_status(po_id):
 
     actor_id, actor = _actor(data)
     old = PurchaseOrder.get_by_id(po_id)
+    blocked = _blocked(old)
+    if blocked:
+        return blocked
     rows = PurchaseOrder.update_status(po_id, status, actor_id)
 
     if rows:
@@ -264,6 +316,9 @@ def update_order_expected_delivery_date(po_id):
 
     actor_id, actor = _actor(data)
     old = PurchaseOrder.get_by_id(po_id)
+    blocked = _blocked(old)
+    if blocked:
+        return blocked
     rows = PurchaseOrder.update_expected_delivery_date(po_id, parsed_date, actor_id)
 
     if rows:
@@ -302,6 +357,9 @@ def update_order_payment_status(po_id):
 
     actor_id, actor = _actor(data)
     old = PurchaseOrder.get_by_id(po_id)
+    blocked = _blocked(old)
+    if blocked:
+        return blocked
     rows = PurchaseOrder.update_payment_status(po_id, payment_status, actor_id)
 
     if rows:
@@ -314,3 +372,83 @@ def update_order_payment_status(po_id):
         )
     else:
         return error_response("Order not found", 404)
+
+def _clean_products(products):
+    return isinstance(products, list) and len(products) > 0
+
+
+@orders_bp.route('/orders/<int:po_id>/approve', methods=['POST'])
+@require_permission('purchase_order.approve')
+def approve_order(po_id):
+    """Place an order that is waiting for approval."""
+    reviewer = g.current_user
+    old = PurchaseOrder.get_by_id(po_id)
+    if not old:
+        return error_response("Order not found", 404)
+    if old['status'] != 'pending_approval':
+        return error_response("Only an order that is waiting for approval can be approved.", 409)
+    if not PurchaseOrder.review(po_id, 'confirmed', reviewer['user_id']):
+        return error_response("This order was already reviewed.", 409)
+    info = Notification.order_summary(po_id)
+    _notify_user('order_approved', po_id, f"PO-{po_id} approved",
+                 f"{reviewer['username']} approved and placed your {info['vendor_name'] if info else ''} order.",
+                 old.get('created_by'), reviewer['user_id'])
+    return success_response({'po_id': po_id, 'status': 'confirmed'}, "Order approved and placed")
+
+
+@orders_bp.route('/orders/<int:po_id>/reject', methods=['POST'])
+@require_permission('purchase_order.approve')
+def reject_order(po_id):
+    """Reject an order that is waiting for approval. Feedback is required and is shown to the person who created it."""
+    reviewer = g.current_user
+    note = ((request.get_json(silent=True) or {}).get('note') or '').strip()
+    if not note:
+        return error_response("Please write the feedback for the person who created this order.", 400)
+    if len(note) > 1000:
+        return error_response("Feedback is too long (maximum 1000 characters).", 400)
+    old = PurchaseOrder.get_by_id(po_id)
+    if not old:
+        return error_response("Order not found", 404)
+    if old['status'] != 'pending_approval':
+        return error_response("Only an order that is waiting for approval can be rejected.", 409)
+    if not PurchaseOrder.review(po_id, 'rejected', reviewer['user_id'], note):
+        return error_response("This order was already reviewed.", 409)
+    _notify_user('order_rejected', po_id, f"PO-{po_id} was rejected",
+                 f"Feedback from {reviewer['username']}: {note}", old.get('created_by'), reviewer['user_id'])
+    return success_response({'po_id': po_id, 'status': 'rejected'}, "Order rejected")
+
+
+@orders_bp.route('/orders/<int:po_id>', methods=['PUT'])
+@validate_json('order_date', 'products', 'expected_delivery_date')
+def edit_order(po_id):
+    """Change an order's dates, remarks and lines.
+    - An approver can edit an order that is waiting for approval (it stays waiting).
+    - The person who created an order can edit it after it was rejected; saving sends it back for approval."""
+    user = current_user_optional()
+    if not user:
+        return error_response("Please sign in again.", 401)
+    old = PurchaseOrder.get_by_id(po_id)
+    if not old:
+        return error_response("Order not found", 404)
+    approver_edit = old['status'] == 'pending_approval' and has_permission(user, 'purchase_order.approve')
+    resubmit = old['status'] == 'rejected' and old.get('created_by') == user['user_id']
+    if not (approver_edit or resubmit):
+        return error_response("You cannot edit this order.", 403)
+
+    data = request.get_json()
+    if not _clean_products(data.get('products')):
+        return error_response("products must be a non-empty list", 400)
+    ok = PurchaseOrder.replace_order(po_id, data['order_date'], data['expected_delivery_date'], data.get('remarks', ''),
+                                     data['products'], 'pending_approval', user['user_id'])
+    if not ok:
+        return error_response("Failed to update the order", 500)
+
+    info = Notification.order_summary(po_id)
+    vendor = info['vendor_name'] if info else ''
+    if resubmit:
+        _notify_approvers('order_resubmitted', po_id, f"PO-{po_id} was resubmitted",
+                          f"{vendor} - {_money(info)}. Resubmitted by {user['username']} after changes. Open it to review.", user['user_id'])
+        return success_response({'po_id': po_id, 'status': 'pending_approval'}, "Order resubmitted for approval")
+    _notify_user('order_edited', po_id, f"PO-{po_id} was edited",
+                 f"{user['username']} made changes to your {vendor} order before approving it.", old.get('created_by'), user['user_id'])
+    return success_response({'po_id': po_id, 'status': 'pending_approval'}, "Order updated")

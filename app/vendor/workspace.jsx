@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { API_BASE_URL, apiFetch, resolveImageUrl } from "../../api/config";
+import { authHeaders } from "../../api/authHeaders";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
 import RefreshButton from "../../components/RefreshButton";
@@ -48,7 +49,7 @@ export default function VendorWorkspaceScreen() {
       formData.append("logo", new File(asset.uri));
       const res = await fetch(
         `${API_BASE_URL}/vendors/${vendor.vendor_id}/logo`,
-        { method: "PUT", body: formData },
+        { method: "PUT", headers: await authHeaders(), body: formData },
       );
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
@@ -123,8 +124,13 @@ export default function VendorWorkspaceScreen() {
       // marked delivered it drops out of this count on the next load,
       // same live-computed pattern as the dashboard KPIs.
       const orders = ordersRes.success ? ordersRes.data || [] : [];
+      // Orders still waiting for an Administrator's approval (or rejected) are not placed yet,
+      // so they are not counted either.
       const pendingOrdersCount = orders.filter(
-        (o) => o.delivery.state !== "delivered",
+        (o) =>
+          !["delivered", "awaiting_approval", "rejected"].includes(
+            o.delivery.state,
+          ),
       ).length;
 
       // Cart count = how many products this vendor currently has sitting

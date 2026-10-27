@@ -54,7 +54,7 @@ def get_dashboard():
         vendor_count_query = """
         SELECT COUNT(DISTINCT vendor_id) as count
         FROM purchase_order
-        WHERE status != 'delivered'
+        WHERE status NOT IN ('delivered', 'pending_approval', 'rejected')
         """
         vendor_result = db.execute_query(vendor_count_query)
         vendors_count = vendor_result[0]['count'] if vendor_result else 0
@@ -65,14 +65,14 @@ def get_dashboard():
         SELECT COUNT(DISTINCT ppd.product_id) as count
         FROM po_product_detail ppd
         JOIN purchase_order po ON ppd.po_id = po.po_id
-        WHERE po.status != 'delivered'
+        WHERE po.status NOT IN ('delivered', 'pending_approval', 'rejected')
         """
         product_result = db.execute_query(product_count_query)
         products_count = product_result[0]['count'] if product_result else 0
 
         # --- Orders count: pending (not yet delivered) orders, full
         # backlog - not scoped to this month. ---
-        orders_count_query = "SELECT COUNT(*) as count FROM purchase_order WHERE status != 'delivered'"
+        orders_count_query = "SELECT COUNT(*) as count FROM purchase_order WHERE status NOT IN ('delivered', 'pending_approval', 'rejected')"
         orders_result = db.execute_query(orders_count_query)
         orders_count = orders_result[0]['count'] if orders_result else 0
         # --- Order amount: total value of orders still PENDING (not
@@ -86,7 +86,7 @@ def get_dashboard():
         SELECT COALESCE(SUM(psd.amount), 0) as order_amount
         FROM po_size_detail psd
         JOIN purchase_order po ON psd.po_id = po.po_id
-        WHERE po.status != 'delivered'
+        WHERE po.status NOT IN ('delivered', 'pending_approval', 'rejected')
         """
         order_amount_result = db.execute_query(order_amount_query)
         order_amount = float(order_amount_result[0]['order_amount']) if order_amount_result else 0
@@ -103,7 +103,7 @@ def get_dashboard():
         FROM purchase_order po
         JOIN vendor v ON po.vendor_id = v.vendor_id
         LEFT JOIN po_size_detail psd ON psd.po_id = po.po_id
-        WHERE po.status != 'delivered'
+        WHERE po.status NOT IN ('delivered', 'pending_approval', 'rejected')
         GROUP BY po.po_id, po.order_date, po.status, po.expected_delivery_date,
                  po.delivered_date, v.vendor_name, v.logo_url
         ORDER BY po.created_date DESC

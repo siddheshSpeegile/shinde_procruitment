@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { API_BASE_URL, apiFetch } from "../../api/config";
+import { authHeaders } from "../../api/authHeaders";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
@@ -182,6 +183,7 @@ export default function AddProductScreen() {
     // parameter) for FormData uploads to parse correctly on the backend.
     const res = await fetch(`${API_BASE_URL}/products`, {
       method: "POST",
+      headers: await authHeaders(),
       body: formData,
     });
     const data = await res.json();

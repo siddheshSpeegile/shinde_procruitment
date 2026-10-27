@@ -6,6 +6,7 @@ can show what happened in BOTH the mobile app and the panel. It never stops or c
 a response: any problem while logging is printed and ignored.
 """
 import json
+import random
 import re
 from flask import request
 from database import db
@@ -16,6 +17,7 @@ CHANGING = ('POST', 'PUT', 'PATCH', 'DELETE')
 SKIP = ('/api/audit-logs', '/api/notifications/read', '/api/pricing/last-batch')
 SECRET = re.compile(r'pass(word)?|secret|token', re.I)
 MAX_DETAILS = 4000  # characters
+RETENTION_DAYS = 90  # older entries are deleted automatically
 
 MASTER = r'(categories|genders|patterns|colors|sizes|gst-rates)'
 # (method, path pattern, readable text). {1}, {2} are the pattern's groups; {po} is the new order number.
@@ -23,6 +25,9 @@ DESCRIBE = [
     ('POST', r'/api/auth/login', 'Signed in'),
     ('POST', r'/api/auth/register', 'Registered an account'),
     ('POST', r'/api/purchase-order', 'Created order PO-{po}'),
+    ('POST', r'/api/orders/(\d+)/approve', 'Approved PO-{1}'),
+    ('POST', r'/api/orders/(\d+)/reject', 'Rejected PO-{1}'),
+    ('PUT', r'/api/orders/(\d+)', 'Edited PO-{1}'),
     ('PATCH', r'/api/orders/(\d+)/status', 'Changed status of PO-{1}'),
     ('PATCH', r'/api/orders/(\d+)/mark-delivered', 'Marked PO-{1} as delivered'),
     ('PATCH', r'/api/orders/(\d+)/expected-delivery-date', 'Changed expected date of PO-{1}'),
@@ -57,7 +62,7 @@ def redact(v):
     return v
 
 
-def _source():
+def request_source():
     """Which app sent the request. The mobile app sends X-Client: mobile; older builds are told apart by their user agent."""
     explicit = (request.headers.get('X-Client') or '').lower()
     if explicit in ('mobile', 'panel'):
@@ -127,8 +132,10 @@ def record_request(response):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             RETURNING audit_id
             """,
-            (user_id, username, role_name, _source(), request.method, path[:255],
+            (user_id, username, role_name, request_source(), request.method, path[:255],
              _describe(request.method, path, response_data), response.status_code, message, details))
+        if random.random() < 0.02:  # now and then, drop entries older than the retention period
+            db.execute_update("DELETE FROM audit_log WHERE created_date < NOW() - make_interval(days => %s)", (RETENTION_DAYS,))
     except Exception as e:  # logging must never break the request
         print(f"Audit log error: {e}")
 

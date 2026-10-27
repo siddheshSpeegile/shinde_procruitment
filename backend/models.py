@@ -1105,6 +1105,11 @@ class PurchaseOrder:
                   date was ever set on the order)
             message: ready-to-display text for the UI
         """
+        if status == 'pending_approval':
+            return {'state': 'awaiting_approval', 'days': None, 'message': 'Waiting for approval'}
+        if status == 'rejected':
+            return {'state': 'rejected', 'days': None, 'message': 'Rejected'}
+
         if status == 'delivered':
             if delivered_date:
                 return {
@@ -1251,82 +1256,88 @@ class PurchaseOrder:
         return db.execute_update(query, (payment_status, updated_by, po_id))
 
     @staticmethod
-    def create_order(vendor_id, order_date, products_data, remarks='', expected_delivery_date=None):
-        """
-        Create a complete purchase order with all details
-        products_data: [
-            {
-                'product_id': 1,
-                'variants': [
-                    {
-                        'variant_id': 1,
-                        'sizes': [
-                            {'size_id': 5, 'cost': 800, 'mrp': 1500, 'qty': 10, 'gst': 5}
-                        ]
-                    }
-                ]
-            }
-        ]
-        """
-        try:
-            # Create PO
-            po_query = """
-            INSERT INTO purchase_order (vendor_id, order_date, remarks, status, expected_delivery_date, created_date)
-            VALUES (%s, %s, %s, 'confirmed', %s, NOW())
-            RETURNING po_id
-            """
-            po_id = db.execute_insert(po_query, (vendor_id, order_date, remarks, expected_delivery_date))
-
-            if not po_id:
-                return None
-
-            # Prepare transaction queries
-            queries = []
-
-            for product in products_data:
-                product_id = product['product_id']
-
-                # Create PO_Product_Detail
-                po_prod_query = "INSERT INTO po_product_detail (po_id, product_id, created_date) VALUES (%s, %s, NOW())"
-                queries.append((po_prod_query, (po_id, product_id)))
-
-                for variant in product['variants']:
-                    variant_id = variant['variant_id']
-
-                    # Create PO_Variant_Detail
-                    po_var_query = "INSERT INTO po_variant_detail (po_id, variant_id, created_date) VALUES (%s, %s, NOW())"
-                    queries.append((po_var_query, (po_id, variant_id)))
-
-                    for size in variant['sizes']:
-                        # Create PO_Size_Detail
-                        # NOTE: 'amount' is a PostgreSQL generated column
-                        # (cost * qty, computed automatically) - it must NOT
-                        # be included in the INSERT, or Postgres rejects it.
-                        cost = size.get('cost', 0)
-                        mrp = size.get('mrp', 0)
-                        qty = size.get('qty', 0)
-                        gst = size.get('gst', 0)
-
-                        po_size_query = """
+    def _detail_queries(po_id, products_data):
+        """The product / variant / size rows of an order, as (query, params) pairs for one transaction."""
+        queries = []
+        for product in products_data:
+            queries.append(("INSERT INTO po_product_detail (po_id, product_id, created_date) VALUES (%s, %s, NOW())",
+                            (po_id, product['product_id'])))
+            for variant in product['variants']:
+                variant_id = variant['variant_id']
+                queries.append(("INSERT INTO po_variant_detail (po_id, variant_id, created_date) VALUES (%s, %s, NOW())",
+                                (po_id, variant_id)))
+                for size in variant['sizes']:
+                    # NOTE: 'amount' is a PostgreSQL generated column (cost * qty) - it must NOT be inserted.
+                    queries.append((
+                        """
                         INSERT INTO po_size_detail
                         (po_id, size_id, variant_id, cost, mrp, qty, gst, created_date)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                        """
-                        queries.append((po_size_query, (po_id, size['size_id'], variant_id, cost, mrp, qty, gst)))
+                        """,
+                        (po_id, size['size_id'], variant_id, size.get('cost', 0), size.get('mrp', 0),
+                         size.get('qty', 0), size.get('gst', 0))))
+        return queries
 
-            # Execute all queries as transaction
-            success = db.execute_transaction(queries)
-
-            if success:
-                # Clear cart
+    @staticmethod
+    def create_order(vendor_id, order_date, products_data, remarks='', expected_delivery_date=None,
+                     status='confirmed', created_by=None):
+        """
+        Create a complete purchase order with all details.
+        status: 'confirmed' (placed) or 'pending_approval' (waits for an approver).
+        products_data: [{'product_id': 1, 'variants': [{'variant_id': 1,
+                         'sizes': [{'size_id': 5, 'cost': 800, 'mrp': 1500, 'qty': 10, 'gst': 5}]}]}]
+        """
+        try:
+            po_id = db.execute_insert(
+                """
+                INSERT INTO purchase_order (vendor_id, order_date, remarks, status, expected_delivery_date, created_by, created_date)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                RETURNING po_id
+                """,
+                (vendor_id, order_date, remarks, status, expected_delivery_date, created_by))
+            if not po_id:
+                return None
+            if db.execute_transaction(PurchaseOrder._detail_queries(po_id, products_data)):
                 Cart.clear_for_vendor(vendor_id)
                 return po_id
-            else:
-                return None
-
+            return None
         except Exception as e:
             print(f"Error creating order: {e}")
             return None
+
+    @staticmethod
+    def replace_order(po_id, order_date, expected_delivery_date, remarks, products_data, new_status, updated_by):
+        """Replace an order's dates, remarks and ALL its lines in one transaction (used for edits and resubmits).
+        Moving to 'pending_approval' also clears any earlier rejection feedback."""
+        queries = [(
+            """
+            UPDATE purchase_order
+            SET order_date = %s, expected_delivery_date = %s, remarks = %s, status = %s,
+                updated_by = %s, updated_date = NOW(),
+                reviewed_by   = CASE WHEN %s = 'pending_approval' THEN NULL ELSE reviewed_by END,
+                reviewed_date = CASE WHEN %s = 'pending_approval' THEN NULL ELSE reviewed_date END,
+                review_note   = CASE WHEN %s = 'pending_approval' THEN NULL ELSE review_note END
+            WHERE po_id = %s
+            """,
+            (order_date, expected_delivery_date, remarks, new_status, updated_by,
+             new_status, new_status, new_status, po_id)),
+            ("DELETE FROM po_size_detail WHERE po_id = %s", (po_id,)),
+            ("DELETE FROM po_variant_detail WHERE po_id = %s", (po_id,)),
+            ("DELETE FROM po_product_detail WHERE po_id = %s", (po_id,))]
+        queries += PurchaseOrder._detail_queries(po_id, products_data)
+        return db.execute_transaction(queries)
+
+    @staticmethod
+    def review(po_id, new_status, reviewer_id, note=None):
+        """Approve ('confirmed') or reject ('rejected') an order that is waiting. Returns rows changed (0 if it was not waiting)."""
+        return db.execute_update(
+            """
+            UPDATE purchase_order
+            SET status = %s, reviewed_by = %s, reviewed_date = NOW(), review_note = %s,
+                updated_by = %s, updated_date = NOW()
+            WHERE po_id = %s AND status = 'pending_approval'
+            """,
+            (new_status, reviewer_id, note, reviewer_id, po_id))
 
     @staticmethod
     def get_all_for_vendor(vendor_id):
@@ -1426,25 +1437,36 @@ class PurchaseOrder:
         """
         po['sizes'] = db.execute_query(size_query, (po_id,))
 
+        ids = [i for i in (po.get('created_by'), po.get('reviewed_by')) if i]
+        names = {}
+        if ids:
+            for r in db.execute_query('SELECT user_id, username FROM "User" WHERE user_id = ANY(%s)', (ids,)) or []:
+                names[r['user_id']] = r['username']
+        po['created_by_name'] = names.get(po.get('created_by'))
+        po['reviewed_by_name'] = names.get(po.get('reviewed_by'))
+
         return po
 
 class Notification:
-    """In-app notifications (mobile app + admin panel). One row per event;
-    which user has read what lives in notification_read. Creating a
-    notification must never break the action that caused it, so create()
-    swallows its own errors."""
+    """In-app notifications (mobile app + admin panel). One row per event; which user has read what lives
+    in notification_read. audience: 'all' (everyone), 'user' (only recipient_user_id) or 'approvers'
+    (everyone who can approve purchase orders). Creating a notification must never break the action that
+    caused it, so create() swallows its own errors."""
+
+    HIDDEN = ('pending_approval', 'rejected')  # orders that do not count as placed yet
 
     @staticmethod
-    def create(type_, title, message=None, po_id=None, created_by=None, dedupe_key=None):
+    def create(type_, title, message=None, po_id=None, created_by=None, dedupe_key=None,
+               audience='all', recipient_user_id=None):
         try:
             return db.execute_insert(
                 """
-                INSERT INTO notification (type, title, message, po_id, created_by, dedupe_key)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO notification (type, title, message, po_id, created_by, dedupe_key, audience, recipient_user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (dedupe_key) DO NOTHING
                 RETURNING notification_id
                 """,
-                (type_, title, message, po_id, created_by, dedupe_key),
+                (type_, title, message, po_id, created_by, dedupe_key, audience, recipient_user_id),
             )
         except Exception as e:
             print(f"Notification create error: {e}")
@@ -1477,15 +1499,15 @@ class Notification:
 
     @staticmethod
     def sync_delayed():
-        """Adds one 'delayed' alert per undelivered order whose expected date
-        has passed (once per order and expected date). Called whenever
-        notifications are read, so no scheduler is needed."""
+        """Adds one 'delayed' alert per placed, undelivered order whose expected date has passed (once per order
+        and expected date). Orders waiting for approval or rejected are ignored. Called whenever notifications
+        are read, so no scheduler is needed."""
         rows = db.execute_query(
             """
             SELECT po.po_id, po.expected_delivery_date, v.vendor_name
             FROM purchase_order po
             JOIN vendor v ON v.vendor_id = po.vendor_id
-            WHERE po.status <> 'delivered'
+            WHERE po.status NOT IN ('delivered', 'pending_approval', 'rejected')
               AND po.expected_delivery_date IS NOT NULL
               AND po.expected_delivery_date < CURRENT_DATE
               AND NOT EXISTS (
@@ -1504,31 +1526,39 @@ class Notification:
                 dedupe_key=f"delayed:{r['po_id']}:{due.isoformat()}",
             )
 
+    # A notification is visible if it is for everyone, for this user, or for approvers (and this user is one).
+    # Targeted ones are only shown when the user was verified by a login token (verified=True).
+    VISIBLE = """(n.audience = 'all'
+                  OR (%(verified)s AND n.audience = 'user' AND n.recipient_user_id = %(uid)s)
+                  OR (%(verified)s AND n.audience = 'approvers' AND %(approver)s))"""
+
     @staticmethod
-    def list_for_user(user_id, limit=50, unread_only=False):
-        query = """
+    def list_for_user(user_id, limit=50, unread_only=False, verified=False, approver=False):
+        query = f"""
         SELECT n.notification_id, n.type, n.title, n.message, n.po_id, n.created_date,
                (nr.user_id IS NOT NULL) AS is_read
         FROM notification n
         LEFT JOIN notification_read nr
-               ON nr.notification_id = n.notification_id AND nr.user_id = %s
+               ON nr.notification_id = n.notification_id AND nr.user_id = %(uid)s
+        WHERE {Notification.VISIBLE}
         """
         if unread_only:
-            query += " WHERE nr.user_id IS NULL"
-        query += " ORDER BY n.created_date DESC, n.notification_id DESC LIMIT %s"
-        return db.execute_query(query, (user_id, limit))
+            query += " AND nr.user_id IS NULL"
+        query += " ORDER BY n.created_date DESC, n.notification_id DESC LIMIT %(limit)s"
+        return db.execute_query(query, {'uid': user_id, 'verified': verified, 'approver': approver, 'limit': limit})
 
     @staticmethod
-    def unread_count(user_id):
+    def unread_count(user_id, verified=False, approver=False):
         rows = db.execute_query(
-            """
+            f"""
             SELECT COUNT(*) AS count FROM notification n
-            WHERE NOT EXISTS (
+            WHERE {Notification.VISIBLE}
+              AND NOT EXISTS (
                 SELECT 1 FROM notification_read nr
-                WHERE nr.notification_id = n.notification_id AND nr.user_id = %s
+                WHERE nr.notification_id = n.notification_id AND nr.user_id = %(uid)s
             )
             """,
-            (user_id,),
+            {'uid': user_id, 'verified': verified, 'approver': approver},
         )
         return int(rows[0]['count']) if rows else 0
 
@@ -1552,7 +1582,6 @@ class Notification:
             """,
             (user_id, ids),
         )
-
 
 
 class UserAccount:
