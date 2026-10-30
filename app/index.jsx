@@ -18,7 +18,7 @@ export default function SplashScreen() {
       } else {
         router.replace("/login");
       }
-    }, 2000);
+    }, 5000); // Shinde logo screen shows for 5 seconds
     return () => clearTimeout(timer);
   }, []);
 
