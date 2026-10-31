@@ -336,16 +336,16 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import Alert from "../../utils/alert";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../../api/config";
@@ -608,14 +608,18 @@ export default function CartListScreen() {
                     {item.variant_count ?? 0}
                   </Text>
                 </View>
-                {(item.selected_size_labels || item.selected_sizes) && (item.selected_size_labels || item.selected_sizes).length > 0 && (
-                  <View style={styles.sizesRow}>
-                    <Text style={styles.sizesLabel}>Sizes:</Text>
-                    <Text style={styles.sizesValue} numberOfLines={1}>
-                      {(item.selected_size_labels || item.selected_sizes).join(", ")}
-                    </Text>
-                  </View>
-                )}
+                {(item.selected_size_labels || item.selected_sizes) &&
+                  (item.selected_size_labels || item.selected_sizes).length >
+                    0 && (
+                    <View style={styles.sizesRow}>
+                      <Text style={styles.sizesLabel}>Sizes:</Text>
+                      <Text style={styles.sizesValue} numberOfLines={1}>
+                        {(
+                          item.selected_size_labels || item.selected_sizes
+                        ).join(", ")}
+                      </Text>
+                    </View>
+                  )}
               </View>
               <TouchableOpacity
                 onPress={() => handleRemove(item)}

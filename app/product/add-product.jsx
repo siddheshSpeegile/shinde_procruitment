@@ -1,11 +1,11 @@
 import Constants from "expo-constants";
-import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +20,8 @@ import { authHeaders } from "../../api/authHeaders";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
+import SaveToGalleryButton from "../../components/SaveToGalleryButton";
+import { photoPart } from "../../utils/photoFormData";
 
 export default function AddProductScreen() {
   const router = useRouter();
@@ -83,6 +85,8 @@ export default function AddProductScreen() {
           uri: asset.uri,
           mimeType: asset.mimeType || "image/jpeg",
           fileName: asset.fileName || "photo.jpg",
+          // Web (PWA) only: the browser File to upload; undefined on phones
+          file: asset.file,
         },
       ];
     });
@@ -119,7 +123,9 @@ export default function AddProductScreen() {
       // This only runs in a real standalone/dev build, where it works
       // normally. Non-blocking either way - if permission is denied, the
       // photo is still usable in the form, it just won't be saved.
-      if (Constants.appOwnership !== "expo") {
+      // (Web/PWA: browsers can't save to the gallery - the "Save to
+      // Gallery" button under each photo is used there instead.)
+      if (Constants.appOwnership !== "expo" && Platform.OS !== "web") {
         try {
           const MediaLibrary = await import("expo-media-library");
           const mediaPerm = await MediaLibrary.requestPermissionsAsync();
@@ -176,7 +182,7 @@ export default function AddProductScreen() {
     // expo-file-system's File wraps the picked photo's existing local URI
     // and implements that Blob-like interface, which the new fetch does
     // understand - this is Expo's own documented fix for SDK 57.
-    photos.forEach((photo) => formData.append("photos", new File(photo.uri)));
+    photos.forEach((photo) => formData.append("photos", photoPart(photo)));
 
     // IMPORTANT: do not set a Content-Type header manually here - fetch
     // needs to generate it itself (including the required "boundary"
@@ -336,28 +342,34 @@ export default function AddProductScreen() {
           </Text>
           <View style={styles.photoRow}>
             {photos.map((p, index) => (
-              <View key={p.uri} style={styles.photoThumbWrap}>
-                <Image source={{ uri: p.uri }} style={styles.photoThumb} />
-                <TouchableOpacity
-                  onPress={() => removePhoto(index)}
-                  style={styles.photoRemoveBtn}
-                >
-                  <Svg
-                    width={12}
-                    height={12}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#fff"
-                    strokeWidth={3}
+              <View key={p.uri} style={styles.photoItem}>
+                <View style={styles.photoThumbWrap}>
+                  <Image source={{ uri: p.uri }} style={styles.photoThumb} />
+                  <TouchableOpacity
+                    onPress={() => removePhoto(index)}
+                    style={styles.photoRemoveBtn}
                   >
-                    <Path d="M6 6l12 12M18 6L6 18" />
-                  </Svg>
-                </TouchableOpacity>
-                {index === 0 && (
-                  <View style={styles.coverBadge}>
-                    <Text style={styles.coverBadgeText}>Cover</Text>
-                  </View>
-                )}
+                    <Svg
+                      width={12}
+                      height={12}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#fff"
+                      strokeWidth={3}
+                    >
+                      <Path d="M6 6l12 12M18 6L6 18" />
+                    </Svg>
+                  </TouchableOpacity>
+                  {index === 0 && (
+                    <View style={styles.coverBadge}>
+                      <Text style={styles.coverBadgeText}>Cover</Text>
+                    </View>
+                  )}
+                </View>
+                <SaveToGalleryButton
+                  file={p.file}
+                  style={styles.saveGalleryBtn}
+                />
               </View>
             ))}
             {photos.length < MAX_PHOTOS && (
@@ -523,6 +535,8 @@ const styles = StyleSheet.create({
   },
   photoHint: { fontSize: 12, color: "#8a7c78" },
   photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  photoItem: { alignItems: "center", gap: 4 },
+  saveGalleryBtn: { paddingVertical: 2 },
   photoThumbWrap: {
     width: 84,
     height: 84,

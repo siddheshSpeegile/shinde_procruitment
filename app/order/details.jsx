@@ -531,7 +531,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -542,6 +541,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import Alert from "../../utils/alert";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../../api/config";
@@ -952,7 +952,9 @@ export default function ProductDetailsScreen() {
               const key = rowKey(r);
               return (
                 <View key={key} style={styles.tableRow}>
-                  <View style={{ width: COLUMN_WIDTHS[0], alignItems: "center" }}>
+                  <View
+                    style={{ width: COLUMN_WIDTHS[0], alignItems: "center" }}
+                  >
                     <Text style={styles.tableCellSize}>{r.size_value}</Text>
                     {r.size_system && r.size_group ? (
                       <Text style={styles.tableCellSizeNote}>

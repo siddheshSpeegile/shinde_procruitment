@@ -341,7 +341,7 @@
 //   submitText: { color: "#fff", fontSize: 17, fontWeight: "800" },
 // });
 
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../../components/DatePicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -352,7 +352,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";

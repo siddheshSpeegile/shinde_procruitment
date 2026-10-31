@@ -1,11 +1,9 @@
-import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,10 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Alert from "../../utils/alert";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { API_BASE_URL, apiFetch, resolveImageUrl } from "../../api/config";
 import { authHeaders } from "../../api/authHeaders";
+import { photoPart } from "../../utils/photoFormData";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
 import RefreshButton from "../../components/RefreshButton";
@@ -46,7 +46,7 @@ export default function VendorWorkspaceScreen() {
       // file's local URI in expo-file-system's File, and let fetch set the
       // multipart Content-Type (with boundary) itself.
       const formData = new FormData();
-      formData.append("logo", new File(asset.uri));
+      formData.append("logo", photoPart(asset));
       const res = await fetch(
         `${API_BASE_URL}/vendors/${vendor.vendor_id}/logo`,
         { method: "PUT", headers: await authHeaders(), body: formData },
