@@ -22,6 +22,7 @@ import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
 import SaveToGalleryButton from "../../components/SaveToGalleryButton";
 import { photoPart } from "../../utils/photoFormData";
+import { saveCameraPhotos } from "../../utils/saveToGallery";
 
 export default function AddProductScreen() {
   const router = useRouter();
@@ -87,6 +88,9 @@ export default function AddProductScreen() {
           fileName: asset.fileName || "photo.jpg",
           // Web (PWA) only: the browser File to upload; undefined on phones
           file: asset.file,
+          // Taken with the camera (not picked from the gallery) - only these
+          // get saved to the gallery on the web after the product is saved
+          fromCamera: !!asset.fromCamera,
         },
       ];
     });
@@ -106,7 +110,7 @@ export default function AddProductScreen() {
     const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
     if (!result.canceled) {
       const asset = result.assets[0];
-      addPhoto(asset);
+      addPhoto({ ...asset, fromCamera: true });
       setError("");
 
       // Also save the captured photo to the device's gallery, same as a
@@ -203,6 +207,11 @@ export default function AddProductScreen() {
     setSaving(true);
     try {
       const { product_id, photo_url } = await createProduct();
+      // Web/PWA: download the camera photos so they land in the gallery
+      // (no-op on phones, which already saved them when they were taken)
+      saveCameraPhotos(photos, vendorProductId.trim() || "shinde-photo").catch(
+        (err) => console.warn("Could not save photos to gallery:", err),
+      );
 
       const product = {
         product_id,
