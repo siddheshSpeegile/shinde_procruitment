@@ -63,8 +63,74 @@ a:hover { color: var(--primary-d); text-decoration: underline; }
 .lg-spin { animation: lg-spin .7s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .lg-march, .lg-march-slow, .lg-drift, .lg-drift-r, .lg-word, .lg-sheen { animation: none; } .lg-word:first-child { opacity: 1; } }
 
+/* Rotating brand logo: flips between the two logos (see components/BrandLogo.jsx). */
+.brand-flip { display: inline-block; flex: none; perspective: 800px; }
+.brand-flip-inner { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 1.2s cubic-bezier(.65, .05, .25, 1); }
+.brand-face { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border-radius: 6px; backface-visibility: hidden; -webkit-backface-visibility: hidden; user-select: none; }
+.brand-face-back { transform: rotateY(180deg); }
+@media (prefers-reduced-motion: reduce) { .brand-flip-inner { transition: none; } }
+
+/* ---- Printing ---- */
+.print-only { display: none; }
 @media print {
+  @page { size: A4; margin: 0; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .no-print { display: none !important; }
-  body { background: #fff; color: #000; }
+  body { background: #fff !important; color: #000; }
+  /* the app shell is a fixed-height flex layout on screen; let the sheet flow over as many pages as it needs */
+  html, body, #root, #root > div, #root > div > div { display: block !important; height: auto !important; overflow: visible !important; }
+  main { display: block !important; overflow: visible !important; padding: 0 !important; height: auto !important; }
+  .print-only { display: block !important; }
   .print-area { box-shadow: none !important; border: none !important; }
 }
+
+/* The printed purchase order (components/OrderSheet.jsx). Brand red is taken from the logo. */
+.os { --red: #d61f26; --red-d: #a8141a; --tint: #fdeeee; --ink: #1f1a19; --mut: #6d6462; --rule: #e6dedc;
+      width: 100%; border-collapse: collapse; color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 10.5pt; line-height: 1.4; }
+.os > thead > tr > td, .os > tfoot > tr > td, .os > tbody > tr > td { padding: 0; }
+.os-gap { height: 11mm; }
+.os-page { padding: 0 13mm !important; }
+.os-head { display: flex; align-items: center; justify-content: space-between; gap: 8mm; }
+.os-logo { height: 24mm; width: auto; display: block; border-radius: 3mm; }
+.os-title { text-align: right; }
+.os-doc { font-size: 10pt; letter-spacing: .32em; text-transform: uppercase; color: var(--red); font-weight: 600; }
+.os-po { font-size: 30pt; font-weight: 600; line-height: 1.05; font-family: 'Source Serif 4', serif; }
+.os-date { color: var(--mut); margin-top: 1mm; }
+.os-rule { height: 1.2mm; margin: 5mm 0 6mm; background: linear-gradient(90deg, var(--red) 0 72%, var(--ink) 72% 100%); }
+.os-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 6mm; }
+.os-box { border: .3mm solid var(--rule); border-top: .9mm solid var(--red); border-radius: 0 0 2mm 2mm; padding: 3mm 4mm 3.5mm; break-inside: avoid; }
+.os-box-title { font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; color: var(--red); font-weight: 600; margin-bottom: 1.5mm; }
+.os-line { display: flex; gap: 3mm; padding: .6mm 0; }
+.os-k { flex: none; width: 29mm; color: var(--mut); }
+.os-v { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.os-product { margin-bottom: 5mm; border: .3mm solid var(--rule); border-radius: 2mm; overflow: hidden; }
+.os-product-head { display: flex; align-items: center; gap: 3.5mm; padding: 2.5mm 3.5mm; background: var(--tint); border-bottom: .3mm solid var(--rule); break-after: avoid; }
+.os-thumb { width: 12mm; height: 12mm; flex: none; border-radius: 1.5mm; border: .3mm solid var(--rule); background: #fff; object-fit: cover; }
+.os-product-name { flex: 1; min-width: 0; display: grid; }
+.os-product-name span { color: var(--mut); font-size: 9pt; font-family: 'IBM Plex Mono', monospace; }
+.os-product-total { font-weight: 600; color: var(--red-d); white-space: nowrap; }
+.os-variant { padding: 2.5mm 3.5mm 3mm; }
+.os-variant + .os-variant { border-top: .3mm dashed var(--rule); }
+.os-variant-name { font-weight: 600; margin-bottom: 1.5mm; break-after: avoid; }
+.os-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.os-table thead { display: table-header-group; }
+.os-table th { background: var(--red); color: #fff; font-weight: 500; font-size: 9pt; text-align: left; padding: 1.4mm 2.5mm; }
+.os-table th:first-child { border-radius: 1.2mm 0 0 1.2mm; } .os-table th:last-child { border-radius: 0 1.2mm 1.2mm 0; }
+.os-table td { padding: 1.5mm 2.5mm; border-bottom: .25mm solid var(--rule); }
+.os-table tr { break-inside: avoid; }
+.os-table .r { text-align: right; font-variant-numeric: tabular-nums; }
+.os-table .os-group td { background: #f6f2f1; color: var(--mut); font-size: 8.5pt; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; padding-top: 1mm; padding-bottom: 1mm; }
+.os-summary { display: flex; gap: 8mm; align-items: flex-start; justify-content: space-between; margin: 6mm 0 8mm; break-inside: avoid; }
+.os-note { flex: 1; color: var(--mut); font-size: 9.5pt; }
+.os-note b { color: var(--ink); }
+.os-paid { margin-top: 3mm; padding: 2.5mm 3.5mm; border-left: 1mm solid #1f8a3d; background: #eef7f0; color: #14602b; border-radius: 0 1.5mm 1.5mm 0; }
+.os-paid b { color: #14602b; }
+.os-total { width: 68mm; flex: none; border: .3mm solid var(--rule); border-radius: 2mm; overflow: hidden; }
+.os-total > div { display: flex; justify-content: space-between; gap: 4mm; padding: 2mm 4mm; }
+.os-total .os-grand { background: var(--red); color: #fff; font-size: 13pt; }
+.os-sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10mm; margin-top: 16mm; text-align: center; color: var(--mut); font-size: 9pt; break-inside: avoid; }
+.os-sign-line { border-bottom: .3mm solid var(--ink); height: 9mm; color: var(--ink); font-size: 10pt; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 1mm; margin-bottom: 1.5mm; }
+.os-foot { display: flex; align-items: center; gap: 4mm; margin-top: 9mm; padding-top: 3mm; border-top: .6mm solid var(--red); color: var(--mut); font-size: 8.5pt; break-inside: avoid; }
+.os-foot-logo { height: 8mm; width: auto; border-radius: 1mm; }
+.os-foot span:nth-of-type(1) { flex: 1; }
+.os-foot-id { color: var(--ink); font-weight: 600; }

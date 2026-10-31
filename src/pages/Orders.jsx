@@ -33,10 +33,10 @@ function Drafts() {
       {data.map((d) => (
         <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-line last:border-0">
           <div className="flex-1 min-w-[180px]">
-            <div className="font-medium">{d.vendor_name || 'No vendor chosen'}</div>
+            <div className="font-medium">{d.vendor_name || 'No supplier chosen'}</div>
             <div className="text-xs text-muted">{d.products} {d.products === 1 ? 'product' : 'products'}, {d.quantity} pieces, saved {timeAgo(d.updated_at)}</div>
           </div>
-          <Link to={`/refill-stock/new?draft=${d.id}`} className="btn btn-sm btn-primary no-underline">Continue</Link>
+          <Link to={`/cut-order/new?draft=${d.id}`} className="btn btn-sm btn-primary no-underline">Continue</Link>
           <button className="btn btn-sm btn-danger" onClick={() => setDel(d)}>Delete</button>
         </div>
       ))}
@@ -56,14 +56,14 @@ export default function Orders() {
 
   return (
     <>
-      <PageHeader title="Purchase Orders" sub="Filter by vendor, delivery status and expected delivery date."
-        actions={<Can perm="purchase_order.create"><Link to="/refill-stock/new" className="btn btn-primary no-underline">New Refill Stock order</Link></Can>} />
+      <PageHeader title="Purchase Orders" sub="Filter by supplier, delivery status and expected delivery date."
+        actions={<Can perm="purchase_order.create"><Link to="/cut-order/new" className="btn btn-primary no-underline">New Cut Order</Link></Can>} />
       <Drafts />
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No orders match" emptyHint="Change the filters or create a new order."
         searchText={(o) => `${o.po} ${o.brand}`}
         toolbar={<>
-          <select className="input max-w-[200px]" aria-label="Vendor" value={f.vendorId} onChange={set('vendorId')}>
-            <option value="">All vendors</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
+          <select className="input max-w-[200px]" aria-label="Supplier" value={f.vendorId} onChange={set('vendorId')}>
+            <option value="">All suppliers</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
           </select>
           <select className="input max-w-[150px]" aria-label="Delivery" value={f.deliveryStatus} onChange={set('deliveryStatus')}>
             <option value="all">All delivery</option><option value="pending">Pending</option><option value="delayed">Delayed</option><option value="delivered">Delivered</option><option value="awaiting_approval">Waiting for approval</option><option value="rejected">Rejected</option>
@@ -75,7 +75,7 @@ export default function Orders() {
         columns={[
           { header: '', render: (o) => <Thumb src={o.image} /> },
           { header: 'PO', render: (o) => <Link to={`/purchase-orders/${o.id}`} className="font-mono">{o.po}</Link> },
-          { header: 'Vendor', key: 'brand' },
+          { header: 'Supplier', key: 'brand' },
           { header: 'Order date', key: 'date' },
           { header: 'Expected', render: (o) => o.expected_delivery_date || '-' },
           { header: 'Amount', key: 'price', className: 'text-right' },

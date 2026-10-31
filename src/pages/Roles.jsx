@@ -8,6 +8,9 @@ import { Can, ErrorState, PageHeader, Pill, Spinner } from '../components/ui';
 const roleName = (r) => String(r.role_name ?? r.name ?? r.role ?? `Role ${r.role_id ?? r.id}`);
 const roleId = (r) => r.role_id ?? r.id;
 
+// Module names in the permission table that are worded differently on screen.
+const MODULE_LABEL = { vendor: 'supplier' };
+
 export default function Roles() {
   const toast = useToast();
   const { user, perms, refreshPermissions } = useAuth();
@@ -27,7 +30,7 @@ export default function Roles() {
 
   const { modules, actions, byKey } = useMemo(() => {
     const list = all.data || [];
-    const m = [...new Set(list.map((p) => p.module))];
+    const m = [...new Set(list.map((p) => p.module))].filter((x) => x !== 'pattern'); // patterns are not used on screen any more
     const a = [...new Set(list.map((p) => p.action))];
     const k = {};
     list.forEach((p) => { k[`${p.module}|${p.action}`] = p; });
@@ -78,7 +81,7 @@ export default function Roles() {
               <thead><tr><th className="th">Module</th>{actions.map((a) => <th key={a} className="th text-center capitalize">{a}</th>)}</tr></thead>
               <tbody>{modules.map((m) => (
                 <tr key={m}>
-                  <td className="td font-medium">{m}</td>
+                  <td className="td font-medium">{MODULE_LABEL[m] || m}</td>
                   {actions.map((a) => {
                     const p = byKey[`${m}|${a}`];
                     return (

@@ -13,6 +13,15 @@ function MasterForm({ type, row, onDone, onClose }) {
   const toast = useToast();
   const api = masterApi(type);
   const isSize = M.nameKey === 'size_value';
+  // Categories also keep their sub-categories: names are added here and saved together with the category.
+  const [subs, setSubs] = useState(() => (row?.sub_categories || []).filter((s) => s.status === 'active').map((s) => s.sub_category_name));
+  const [subText, setSubText] = useState('');
+  const addSubs = (text = subText) => {
+    const next = [...subs];
+    String(text).split(/[,\n]/).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean).forEach((n) => { if (!next.some((x) => x.toLowerCase() === n.toLowerCase())) next.push(n); });
+    setSubs(next); setSubText('');
+    return next;
+  };
   const f = useForm({ name: row?.[M.nameKey] ?? '', system: row?.size_system || 'UK', group: row?.size_group || 'Adult', hex: row?.hex_code || '#8a3230', hasHex: !!row?.hex_code, description: row?.description ?? '' }, (v) => {
     const e = {};
     const name = String(v.name).trim();
@@ -25,6 +34,7 @@ function MasterForm({ type, row, onDone, onClose }) {
 
   const save = f.submit(async (v) => {
     const body = { [M.nameKey]: M.isGst ? Number(v.name) : String(v.name).trim() };
+    if (M.hasSubs) body.sub_categories = addSubs();
     if (isSize && !row) { body.size_system = v.system; body.size_group = v.group; }
     if (M.hasHex) body.hex_code = v.hasHex ? v.hex : '';
     if (M.isGst) body.description = v.description;
@@ -53,6 +63,25 @@ function MasterForm({ type, row, onDone, onClose }) {
           hint={isSize ? 'UK Toddler: 0K to 13K or 1 to 5. UK Adult: 1 to 18. EUR Toddler: 18 to 30. EUR Adult: 31 to 46.' : undefined}>
           <input className="input" autoFocus {...f.bind('name')} inputMode={M.isGst ? 'decimal' : undefined} />
         </Field>
+        {M.hasSubs && (
+          <div className="mb-3">
+            <span className="label">Sub-categories</span>
+            <div className="flex gap-2">
+              <input className="input" value={subText} placeholder="Type a name, press Enter" aria-label="Add a sub-category"
+                onChange={(e) => setSubText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubs(); } }} />
+              <button type="button" className="btn" onClick={() => addSubs()}>Add</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {subs.map((n) => (
+                <span key={n} className="pill pill-neutral inline-flex items-center gap-1.5">
+                  {n}<button type="button" aria-label={`Remove ${n}`} className="bg-transparent border-0 p-0 cursor-pointer text-muted" onClick={() => setSubs(subs.filter((x) => x !== n))}>&times;</button>
+                </span>
+              ))}
+              {!subs.length && <span className="text-xs text-muted">No sub-categories yet.</span>}
+            </div>
+            <span className="block text-xs text-muted mt-1">Separate several with commas. They are saved with the category. Removing one switches it off; products that already use it keep it.</span>
+          </div>
+        )}
         {M.isGst && <Field label="Description"><input className="input" {...f.bind('description')} /></Field>}
         {M.hasHex && (
           <>
@@ -99,7 +128,9 @@ function MasterList({ type }) {
     try { setUsage({ r, count: (await api.usage(r[M.idKey])).usage_count }); } catch (e) { toast.error(e.message); }
   }
 
+  const activeSubs = (r) => (r.sub_categories || []).filter((s) => s.status === 'active').map((s) => s.sub_category_name);
   const cols = [{ header: isSize ? 'Size' : M.isGst ? 'Rate' : 'Name', render: (r) => <span className="font-medium">{label(r)}</span> }];
+  if (M.hasSubs) cols.push({ header: 'Sub-categories', render: (r) => { const n = activeSubs(r); return n.length ? <span title={n.join(', ')}>{n.length} · {n.slice(0, 3).join(', ')}{n.length > 3 ? '…' : ''}</span> : '-'; } });
   if (isSize) cols.push({ header: 'System', key: 'size_system' }, { header: 'Category', key: 'size_group' });
   if (M.hasHex) cols.push({ header: 'Swatch', render: (r) => <span className="flex items-center gap-2"><Swatch hex={r.hex_code} /><span className="font-mono text-xs">{r.hex_code || '-'}</span></span> });
   if (M.isGst) cols.push({ header: 'Description', key: 'description' });
@@ -117,7 +148,7 @@ function MasterList({ type }) {
         actions={<Can perm={`${M.perm}.create`}><button className="btn btn-primary" onClick={() => setEdit({})}>Add {M.label.toLowerCase()}</button></Can>} />
       {type === 'sizes' && <MockBanner>A size you deactivate disappears from this list and cannot be switched back on from here.</MockBanner>}
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} columns={cols} emptyTitle={`No ${M.plural.toLowerCase()} yet`}
-        searchText={(r) => String(label(r)) + ' ' + (r.size_label || '') + ' ' + (r.description || '')}
+        searchText={(r) => String(label(r)) + ' ' + (r.size_label || '') + ' ' + activeSubs(r).join(' ') + ' ' + (r.description || '')}
         toolbar={isSize && <>
           <select className="input max-w-[130px]" aria-label="System" value={sys} onChange={(e) => setSys(e.target.value)}><option value="">All systems</option>{SIZE_SYSTEMS.map((x) => <option key={x}>{x}</option>)}</select>
           <select className="input max-w-[140px]" aria-label="Category" value={grp} onChange={(e) => setGrp(e.target.value)}><option value="">All categories</option>{SIZE_GROUPS.map((x) => <option key={x}>{x}</option>)}</select>

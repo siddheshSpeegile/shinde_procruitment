@@ -9,10 +9,10 @@ import { inr, isoDate, num, timeAgo, today, variantLabel } from '../lib/format';
 import { groupTitle } from '../lib/sizes';
 
 const uid = () => Math.random().toString(36).slice(2);
-// Cost starts at the product's own price (as in the mobile app); MRP and GST come from the last order, if there was one.
+// Cost starts at the product's own cost (as in the mobile app); MRP and GST come from the last order, if there was one.
 const sizeRow = (s, p = {}, price) => ({ size_id: s.size_id, size_value: s.size_value, size_system: s.size_system, size_group: s.size_group, size_label: s.size_label, qty: '', cost: price != null && price !== '' ? String(Number(price)) : (p.cost ?? ''), mrp: p.mrp ?? '', gst: p.gst ?? '' });
 
-function ProductBlock({ line, products, onChange, onRemove }) {
+function ProductBlock({ line, products, gstRates, onChange, onRemove }) {
   const toast = useToast();
   const variants = useAsync(() => variantsApi.list(line.productId), [line.productId], { enabled: !!line.productId });
   const [adding, setAdding] = useState(false);
@@ -40,7 +40,7 @@ function ProductBlock({ line, products, onChange, onRemove }) {
           <option value="">Select a product</option>
           {products.map((p) => <option key={p.product_id} value={p.product_id}>{p.v_prod_id} · {p.product_name}</option>)}
         </select>
-        {product && <span className="text-xs text-muted">List price {inr(product.price)}</span>}
+        {product && <span className="text-xs text-muted">Product cost {inr(product.price)}</span>}
         <button className="btn btn-sm btn-danger ml-auto" onClick={onRemove}>Remove product</button>
       </div>
       {line.productId && (
@@ -59,8 +59,16 @@ function ProductBlock({ line, products, onChange, onRemove }) {
                     )}
                     <tr>
                       <td className="td w-16">{s.size_value}</td>
-                      {['qty', 'cost', 'mrp', 'gst'].map((k) => (
-                        <td key={k} className="td"><input className="input h-8 w-24" type="number" min="0" step={k === 'qty' ? '1' : 'any'} aria-label={`${k} for size ${s.size_label || s.size_value}`} value={s[k]} onChange={(e) => setCell(vi, si, k, e.target.value)} list={k === 'gst' ? 'gst-list' : undefined} /></td>
+                      {['qty', 'cost', 'mrp', 'gst'].map((k) => k === 'gst' ? (
+                        <td key={k} className="td">
+                          <select className="input h-8 w-24" aria-label={`gst for size ${s.size_label || s.size_value}`} disabled={!gstRates.length}
+                            value={gstRates.includes(String(num(s.gst))) && s.gst !== '' ? String(num(s.gst)) : ''} onChange={(e) => setCell(vi, si, 'gst', e.target.value)}>
+                            <option value="">{gstRates.length ? 'Select' : 'None'}</option>
+                            {gstRates.map((r) => <option key={r} value={r}>{r}%</option>)}
+                          </select>
+                        </td>
+                      ) : (
+                        <td key={k} className="td"><input className="input h-8 w-24" type="number" min="0" step={k === 'qty' ? '1' : 'any'} aria-label={`${k} for size ${s.size_label || s.size_value}`} value={s[k]} onChange={(e) => setCell(vi, si, k, e.target.value)} /></td>
                       ))}
                       <td className="td">{inr(num(s.qty) * num(s.cost))}</td>
                     </tr>
@@ -120,6 +128,8 @@ export default function CreateOrder() {
   const [sp] = useSearchParams();
   const vendors = useAsync(() => vendorsApi.list());
   const gst = useAsync(() => masterApi('gst-rates').list());
+  // GST % can only be chosen from the active rates of the GST Master.
+  const gstRates = (gst.data || []).filter((g) => g.status === 'active').map((g) => String(Number(g.gst_rate)));
   const remarkHints = useAsync(() => suggestionsApi.get('order_remarks'));
   const [vendorId, setVendorId] = useState(sp.get('vendorId') || '');
   const [orderDate, setOrderDate] = useState(today());
@@ -203,7 +213,7 @@ export default function CreateOrder() {
   async function fromCart() {
     try {
       const rows = await cartApi.details(vendorId);
-      if (!rows.length) { toast.info('The cart for this vendor is empty.'); return; }
+      if (!rows.length) { toast.info('The cart for this supplier is empty.'); return; }
       const pr = await ordersApi.lastPricing(rows.map((r) => ({ variant_id: r.variant_id, size_id: r.size_id, product_id: r.product_id })));
       const out = [];
       rows.forEach((r, i) => {
@@ -227,7 +237,7 @@ export default function CreateOrder() {
 
   function validate() {
     const e = [];
-    if (!vendorId) e.push('Choose a vendor.');
+    if (!vendorId) e.push('Choose a supplier.');
     if (!orderDate) e.push('Order date is required.');
     if (!expected) e.push('Expected delivery date is required.');
     else if (orderDate && expected < orderDate) e.push('Expected delivery cannot be before the order date.');
@@ -235,6 +245,7 @@ export default function CreateOrder() {
     if (!filled.length) e.push('Enter a quantity for at least one size.');
     if (filled.some((s) => !(num(s.cost) > 0))) e.push('Every size with a quantity needs a cost above 0.');
     if (filled.some((s) => num(s.qty) % 1 !== 0)) e.push('Quantities must be whole numbers.');
+    if (gstRates.length && filled.some((s) => s.gst === '' || !gstRates.includes(String(num(s.gst))))) e.push('Choose a GST rate from the list for every size with a quantity.');
     return e;
   }
 
@@ -269,7 +280,7 @@ export default function CreateOrder() {
   return (
     <>
       <PageHeader back={editing ? { to: `/purchase-orders/${id}`, label: `Back to PO-${id}` } : { to: '/purchase-orders', label: 'Back', useHistory: true }}
-        title={editing ? `${resubmit ? 'Edit and resubmit' : 'Edit'} PO-${id}` : 'Refill Stock'}
+        title={editing ? `${resubmit ? 'Edit and resubmit' : 'Edit'} PO-${id}` : 'Cut Order'}
         sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {editing ? `PO-${id}` : 'New order'}</>} />
       {editing && existing.loading && <Spinner />}
       {editing && existing.error && <div className="card p-6 text-bad" role="alert">{existing.error.message}</div>}
@@ -300,9 +311,9 @@ export default function CreateOrder() {
       <div className="grid gap-4 lg:grid-cols-[1fr_280px] items-start">
         <div>
           <div className="card p-4 mb-3 grid gap-x-4 sm:grid-cols-2">
-            <Field label="Vendor" required>
+            <Field label="Supplier" required>
               <select className="input" value={vendorId} disabled={editing} onChange={(e) => pickVendor(e.target.value)}>
-                <option value="">Select a vendor</option>{(vendors.data || []).filter((v) => v.status === 'active').map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
+                <option value="">Select a supplier</option>{(vendors.data || []).filter((v) => v.status === 'active').map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
               </select>
             </Field>
             <Field label="Order date" required><input type="date" className="input" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></Field>
@@ -312,11 +323,10 @@ export default function CreateOrder() {
               <datalist id="order-remarks">{(remarkHints.data || []).map((x) => <option key={x} value={x} />)}</datalist>
             </Field>
           </div>
-          <datalist id="gst-list">{(gst.data || []).filter((g) => g.status === 'active').map((g) => <option key={g.gst_id} value={Number(g.gst_rate)} />)}</datalist>
           {vendorId && (products.loading ? <Spinner /> : (
             <>
               {lines.map((l) => (
-                <ProductBlock key={l.id} line={l} products={products.data || []}
+                <ProductBlock key={l.id} line={l} products={products.data || []} gstRates={gstRates}
                   onChange={(nl) => setLines(lines.map((x) => (x.id === l.id ? nl : x)))} onRemove={() => setLines(lines.filter((x) => x.id !== l.id))} />
               ))}
               <div className="flex gap-2">
@@ -344,7 +354,7 @@ export default function CreateOrder() {
           <div className="text-xs text-muted mt-2">
             {editing
               ? (resubmit ? 'The order goes back to the Administrator for approval.' : 'The order stays waiting. Approve it from the order page when you are ready.')
-              : canApprove ? 'The order is saved as Confirmed and the vendor cart is cleared.'
+              : canApprove ? 'The order is saved as Confirmed and the supplier cart is cleared.'
                 : 'An Administrator has to approve this order before it is placed. They are notified as soon as you submit it.'}
           </div>
         </aside>

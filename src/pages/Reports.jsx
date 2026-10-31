@@ -28,7 +28,7 @@ export default function Reports() {
       <h2 className="font-serif text-xl m-0 mb-2">By delivery state</h2>
       <DataTable rows={byStatus} emptyTitle="No orders" columns={[{ header: 'State', render: (r) => <span className="capitalize">{r.state}</span> }, { header: 'Orders', key: 'orders' }, { header: 'Value', render: (r) => inr(r.amount), className: 'text-right' }]} />
       <h2 className="font-serif text-xl mt-6 mb-2">By vendor</h2>
-      <DataTable rows={byVendor} emptyTitle="No orders" columns={[{ header: 'Vendor', key: 'brand' }, { header: 'Orders', key: 'orders' }, { header: 'Delayed', key: 'delayed' }, { header: 'Value', render: (r) => inr(r.amount), className: 'text-right' }]} />
+      <DataTable rows={byVendor} emptyTitle="No orders" columns={[{ header: 'Supplier', key: 'brand' }, { header: 'Orders', key: 'orders' }, { header: 'Delayed', key: 'delayed' }, { header: 'Value', render: (r) => inr(r.amount), className: 'text-right' }]} />
     </>
   );
 }

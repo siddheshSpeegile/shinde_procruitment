@@ -21,9 +21,8 @@ export const vendorsApi = {
 
 /** One entry per lookup table. Same shape for list / create / update / status. */
 export const MASTERS = {
-  categories: { label: 'Category', plural: 'Categories', path: '/categories', idKey: 'category_id', nameKey: 'category_name', perm: 'category' },
+  categories: { label: 'Category', plural: 'Categories', path: '/categories', idKey: 'category_id', nameKey: 'category_name', perm: 'category', hasSubs: true },
   genders: { label: 'Gender', plural: 'Genders', path: '/genders', idKey: 'gender_id', nameKey: 'gender_name', perm: 'gender' },
-  patterns: { label: 'Pattern', plural: 'Patterns', path: '/patterns', idKey: 'pattern_id', nameKey: 'pattern_name', perm: 'pattern' },
   colors: { label: 'Color', plural: 'Colors', path: '/colors', idKey: 'color_id', nameKey: 'color_name', perm: 'color', hasHex: true },
   sizes: { label: 'Size', plural: 'Sizes', path: '/sizes', idKey: 'size_id', nameKey: 'size_value', perm: 'size' },
   'gst-rates': { label: 'GST rate', plural: 'GST Master', path: '/gst-rates', idKey: 'gst_id', nameKey: 'gst_rate', perm: 'gst', isGst: true },
@@ -38,6 +37,8 @@ export const masterApi = (type) => {
     usage: (id) => api.get(`${M.path}/${id}/usage`),
   };
 };
+// Category / sub-category pairs of the sales data (read only).
+export const subCategoriesApi = { list: () => api.get('/sub-categories') };
 export const colorHexApi = { resolve: (name) => api.get('/colors/hex', { name }) };
 export const suggestionsApi = { get: (field) => api.get(`/suggestions/${field}`) };
 
@@ -66,7 +67,8 @@ export const ordersApi = {
   markDelivered: (id) => api.patch(`/orders/${id}/mark-delivered`, withUser({})),
   setStatus: (id, status) => api.patch(`/orders/${id}/status`, withUser({ status })),
   setExpected: (id, expected_delivery_date) => api.patch(`/orders/${id}/expected-delivery-date`, withUser({ expected_delivery_date })),
-  setPayment: (id, payment_status) => api.patch(`/orders/${id}/payment-status`, withUser({ payment_status })),
+  // Marking an order paid sends the payment details (date, mode, amount, reference, remarks); marking it unpaid clears them.
+  setPayment: (id, payment_status, payment) => api.patch(`/orders/${id}/payment-status`, withUser({ payment_status, ...(payment ? { payment } : {}) })),
   update: (id, b) => api.put(`/orders/${id}`, b), // edit lines/dates (approver while waiting, or the creator after a rejection)
   approve: (id) => api.post(`/orders/${id}/approve`, {}),
   reject: (id, note) => api.post(`/orders/${id}/reject`, { note }),

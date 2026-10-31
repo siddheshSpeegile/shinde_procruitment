@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Spinner } from '../ui';
 import NotificationBell from '../NotificationBell';
+import BrandLogo from '../BrandLogo';
 
 export default function AppLayout() {
   const { user, can, logout } = useAuth();
@@ -40,7 +41,7 @@ export default function AppLayout() {
         className={`w-60 flex-none bg-side text-[#e8e2de] flex flex-col no-print fixed inset-y-0 left-0 z-40 md:static md:translate-x-0 md:visible transition-[transform,visibility] duration-200 ${open ? 'translate-x-0 visible' : '-translate-x-full invisible'}`}>
         <div className="h-[60px] flex items-center gap-2.5 px-4 border-b border-white/10">
           <Link to="/" className="flex-1 flex items-center" aria-label="Shinde Shoes - Dashboard">
-            <span className="bg-white rounded-lg px-2 h-[46px] flex items-center"><img src="/logo-sidebar.jpg" alt="Shinde Shoes" className="h-[38px] w-auto block" /></span>
+            <BrandLogo height={46} />
           </Link>
           <button type="button" className="md:hidden w-9 h-9 rounded-md text-xl text-[#d9d1cc] hover:bg-white/10" aria-label="Close menu" onClick={() => setOpen(false)}>&times;</button>
         </div>
@@ -65,7 +66,7 @@ export default function AppLayout() {
             <button type="button" className="btn btn-sm !h-9 !w-9 !px-0" aria-label="Open menu" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             </button>
-            <Link to="/" aria-label="Dashboard" className="flex items-center"><img src="/logo-sidebar.jpg" alt="Shinde Shoes" className="h-8 w-auto block" /></Link>
+            <Link to="/" aria-label="Dashboard" className="flex items-center"><BrandLogo height={34} /></Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <NotificationBell />

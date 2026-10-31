@@ -1,3 +1,4 @@
+import BrandLogo from '../components/BrandLogo';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import gsap from 'gsap';
@@ -95,7 +96,7 @@ export default function Login() {
           transition={{ duration: shake ? 0.4 : 0.6, ease: 'easeOut' }}
           className="card w-full max-w-[400px] my-auto mx-auto px-8 py-7 grid gap-3.5" style={{ boxShadow: '0 18px 50px rgba(58,21,22,.14)' }}>
           <div className="lg-logo flex justify-center">
-            <div className="bg-white rounded-xl px-3.5 py-1"><img src="/logo.jpg" alt="Shinde Shoes" width="190" className="block h-auto" style={{ width: 190 }} /></div>
+            <BrandLogo height={92} />
           </div>
           <div className="lg-field text-center">
             <h2 className="font-serif font-semibold text-[26px] m-0 mb-0.5">Welcome back</h2>

@@ -37,14 +37,14 @@ export default function Dashboard() {
       <div className="grid gap-3.5 mb-5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))' }}>
         <Kpi label="Order value pending" value={d.order_amount} money hint="Orders not delivered" />
         <Kpi label="Pending orders" value={d.orders_count} hint="Not delivered" />
-        <Kpi label="Vendors with pending orders" value={d.vendors_count} />
+        <Kpi label="Suppliers with pending orders" value={d.vendors_count} />
       </div>
       <h2 className="font-serif text-xl m-0 mb-2">Pending orders</h2>
       <DataTable rows={rows} emptyTitle="No pending orders"
         columns={[
           { header: '', render: (o) => <Thumb src={o.image} /> },
           { header: 'PO', render: (o) => <Link to={`/purchase-orders/${o.id}`} className="font-mono">{o.po}</Link> },
-          { header: 'Vendor', key: 'brand' },
+          { header: 'Supplier', key: 'brand' },
           { header: 'Order date', render: (o) => o.date },
           { header: 'Expected', render: (o) => o.expected_delivery_date || '-' },
           { header: 'Amount', key: 'price', className: 'text-right' },

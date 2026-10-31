@@ -14,15 +14,15 @@ export default function Cart() {
   return (
     <>
       <PageHeader title="Cart" sub="Read only. Items are added in the mobile app."
-        actions={vendor && <Can perm="purchase_order.create"><Link className="btn btn-primary no-underline" to={`/refill-stock/new?vendorId=${vendor}&fromCart=1`}>Create order from cart</Link></Can>} />
-      <MockBanner>The cart belongs to a vendor, not to a user, and is filled from the mobile app.</MockBanner>
+        actions={vendor && <Can perm="purchase_order.create"><Link className="btn btn-primary no-underline" to={`/cut-order/new?vendorId=${vendor}&fromCart=1`}>Create order from cart</Link></Can>} />
+      <MockBanner>The cart belongs to a supplier, not to a user, and is filled from the mobile app.</MockBanner>
       <div className="card p-3 mb-3 flex items-center gap-3">
-        <label className="label m-0" htmlFor="cv">Vendor</label>
+        <label className="label m-0" htmlFor="cv">Supplier</label>
         <select id="cv" className="input max-w-xs" value={vendor} onChange={(e) => setSp(e.target.value ? { vendorId: e.target.value } : {})}>
-          <option value="">Select a vendor</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
+          <option value="">Select a supplier</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
         </select>
       </div>
-      {!vendor ? <div className="card p-10 text-center text-muted">Choose a vendor to see its cart.</div> : (
+      {!vendor ? <div className="card p-10 text-center text-muted">Choose a supplier to see its cart.</div> : (
         <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="This cart is empty" emptyHint="Items added in the mobile app appear here."
           columns={[
             { header: 'Image', render: (c) => <Thumb src={c.photo_url} /> },

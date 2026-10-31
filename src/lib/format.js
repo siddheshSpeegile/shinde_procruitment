@@ -1,5 +1,7 @@
 // Flask serialises Decimal as a string and dates as "Thu, 08 Oct 2026 00:00:00 GMT". Normalise here.
 export const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+// Money with always two decimals (payment amounts).
+export const inr2 = (v) => '₹' + num(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const inr = (v) => '₹' + num(v).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 export function fmtDate(v) {
@@ -21,7 +23,7 @@ export function isoDate(v) {
 }
 export const today = () => new Date().toISOString().slice(0, 10);
 
-export const variantLabel = (v) => [v.color_name, v.pattern_name, v.category_name].filter(Boolean).join(' · ') || `Variant #${v.variant_id}`;
+export const variantLabel = (v) => [v.color_name, v.category_name].filter(Boolean).join(' · ') || `Variant #${v.variant_id}`;
 
 export function downloadCsv(filename, rows) {
   const esc = (c) => `"${String(c ?? '').replace(/"/g, '""')}"`;

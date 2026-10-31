@@ -4,16 +4,20 @@ import { masterApi, ordersApi, variantsApi, vendorsApi } from '../api/endpoints'
 import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { Can, Confirm, ErrorState, Modal, PageHeader, Pill, Spinner, StatusPill, Thumb } from '../components/ui';
-import { downloadCsv, fmtDate, inr, isoDate, num, today } from '../lib/format';
+import { Can, Confirm, ErrorState, Field, Modal, PageHeader, Pill, Spinner, StatusPill, Thumb } from '../components/ui';
+import { downloadCsv, fmtDate, inr, inr2, isoDate, num, today } from '../lib/format';
 import { groupSizes, sizeLabel } from '../lib/sizes';
+import OrderSheet from '../components/OrderSheet';
+
+const PAY_MODES = ['Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card', 'Other'];
 
 async function load(id) {
   const po = await ordersApi.get(id);
   const vids = [...new Set((po.sizes || []).map((s) => s.variant_id).filter(Boolean))];
-  const [vs, cats, pats, cols, vendors] = await Promise.all([
+  const [vs, cats, cols, vendors] = await Promise.all([
+
     Promise.allSettled(vids.map((v) => variantsApi.get(v))),
-    masterApi('categories').list(), masterApi('patterns').list(), masterApi('colors').list(), vendorsApi.list(),
+    masterApi('categories').list(), masterApi('colors').list(), vendorsApi.list(),
   ]);
   const name = (list, idKey, nameKey, id) => list.find((x) => x[idKey] === id)?.[nameKey];
   const variants = {};
@@ -22,7 +26,7 @@ async function load(id) {
     if (r.status !== 'fulfilled') { variants[id] = { variant_id: id, label: `Variant #${id}`, product_id: null }; return; }
     const v = r.value;
     const color = cols.find((c) => c.color_id === v.color_id);
-    variants[id] = { ...v, hex: color?.hex_code, label: [color?.color_name, name(pats, 'pattern_id', 'pattern_name', v.pattern_id), name(cats, 'category_id', 'category_name', v.category_id)].filter(Boolean).join(' · ') };
+    variants[id] = { ...v, hex: color?.hex_code, label: [color?.color_name, name(cats, 'category_id', 'category_name', v.category_id)].filter(Boolean).join(' · ') };
   });
   return { po, variants, vendor: vendors.find((v) => v.vendor_id === po.vendor_id) };
 }
@@ -45,6 +49,8 @@ export default function OrderDetail() {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  const [pay, setPay] = useState({ date: '', mode: '', amount: '', reference: '', remarks: '' });
+  const [payErr, setPayErr] = useState({});
   const { user, can } = useAuth();
 
   if (loading) return <Spinner />;
@@ -72,8 +78,30 @@ export default function OrderDetail() {
   const placed = !waiting && !rejected;
   const mine = po.created_by != null && po.created_by === user?.user_id;
 
+  const paid = po.payment_status === 'paid';
+  const payField = (k) => ({ value: pay[k], onChange: (e) => setPay({ ...pay, [k]: e.target.value }) });
+
+  // Marking paid first asks for the payment details.
+  function openPay() {
+    setPay({ date: today(), mode: '', amount: String(total), reference: '', remarks: '' });
+    setPayErr({});
+    setDlg('pay');
+  }
+  function submitPay() {
+    const e = {};
+    const amount = Number(pay.amount);
+    if (!pay.date) e.date = 'Enter the payment date.';
+    else if (pay.date > today()) e.date = 'The payment date cannot be in the future.';
+    if (!pay.mode) e.mode = 'Choose how it was paid.';
+    if (pay.amount === '' || !(amount > 0)) e.amount = 'Enter the amount paid.';
+    if (pay.mode && pay.mode !== 'Cash' && !pay.reference.trim()) e.reference = `Enter the ${pay.mode === 'Cheque' ? 'cheque' : 'transaction or UTR'} number.`;
+    setPayErr(e);
+    if (Object.keys(e).length) return;
+    run(() => ordersApi.setPayment(po.po_id, 'paid', { date: pay.date, mode: pay.mode, amount, reference: pay.reference.trim(), remarks: pay.remarks.trim() }), 'Marked as paid. The payment details were saved.');
+  }
+
   function csv() {
-    const out = [['PO', 'Vendor', 'Product code', 'Product', 'Variant', 'Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount']];
+    const out = [['PO', 'Supplier', 'Product code', 'Product', 'Variant', 'Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount']];
     Object.entries(groups).forEach(([pid, vs]) => {
       const p = po.products.find((x) => String(x.product_id) === String(pid));
       vs.forEach(({ v, rows }) => rows.forEach((s) => out.push([`PO-${po.po_id}`, vendor?.vendor_name, p?.v_prod_id, p?.product_name, v?.label, sizeLabel(s), s.qty, s.cost, s.mrp, s.gst, num(s.cost) * num(s.qty)])));
@@ -83,7 +111,7 @@ export default function OrderDetail() {
 
   return (
     <>
-      <PageHeader back={{ to: '/purchase-orders', label: 'Back to Purchase Orders' }} title={`PO-${po.po_id}`} sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {vendor?.vendor_name || `Vendor #${po.vendor_id}`}</>}
+      <PageHeader back={{ to: '/purchase-orders', label: 'Back to Purchase Orders' }} title={`PO-${po.po_id}`} sub={<><Link to="/purchase-orders">Purchase Orders</Link> / {vendor?.vendor_name || `Supplier #${po.vendor_id}`}</>}
         actions={<>
           <button className="btn" onClick={() => window.print()}>Print</button>
           <button className="btn" onClick={csv}>Download CSV</button>
@@ -91,7 +119,7 @@ export default function OrderDetail() {
             <Can perm="purchase_order.edit">
               <button className="btn" onClick={() => { setDate(isoDate(po.expected_delivery_date)); setDlg('date'); }}>Change expected date</button>
               <button className="btn" onClick={() => { setStatus(po.status); setDlg('status'); }}>Change status</button>
-              <button className="btn" onClick={() => run(() => ordersApi.setPayment(po.po_id, po.payment_status === 'paid' ? 'unpaid' : 'paid'), 'Payment status updated.')}>Mark {po.payment_status === 'paid' ? 'unpaid' : 'paid'}</button>
+              {paid ? <span className="pill pill-ok self-center" title="A paid order cannot be changed back to unpaid">Paid</span> : <button className="btn" onClick={openPay}>Mark paid</button>}
             </Can>
           )}
           {placed && po.status !== 'delivered' && <Can perm="purchase_order.edit"><button className="btn btn-primary" onClick={() => setDlg('deliver')}>Mark delivered</button></Can>}
@@ -112,15 +140,15 @@ export default function OrderDetail() {
         </div>
       )}
       {rejected && (
-        <div className="rounded-md px-4 py-3 mb-4" role="alert" style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)' }}>
+        <div className="rounded-md px-4 py-3 mb-4 no-print" role="alert" style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)' }}>
           <b>Rejected{po.reviewed_by_name ? ` by ${po.reviewed_by_name}` : ''}.</b>
           <div className="mt-1 whitespace-pre-wrap">{po.review_note || 'No feedback was written.'}</div>
           {mine ? <div className="mt-1 text-xs">Fix what was asked, then use Edit and resubmit.</div> : null}
         </div>
       )}
 
-      <div className="card p-4 mb-4 print-area grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
-        {[['Vendor', vendor?.vendor_name], ['Order date', fmtDate(po.order_date)], ['Expected delivery', fmtDate(po.expected_delivery_date)], ['Quantity', qty], ['Order value', inr(total)], ['Remarks', po.remarks || '-'], ['Created by', po.created_by_name || '-'], ...(po.reviewed_by_name ? [['Reviewed by', po.reviewed_by_name]] : [])].map(([k, v]) => (
+      <div className="card p-4 mb-4 no-print grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
+        {[['Supplier', vendor?.vendor_name], ['Order date', fmtDate(po.order_date)], ['Expected delivery', fmtDate(po.expected_delivery_date)], ['Quantity', qty], ['Order value', inr(total)], ['Remarks', po.remarks || '-'], ['Created by', po.created_by_name || '-'], ...(po.reviewed_by_name ? [['Reviewed by', po.reviewed_by_name]] : [])].map(([k, v]) => (
           <div key={k}><div className="text-xs text-muted">{k}</div><div className="font-medium">{v}</div></div>
         ))}
         <div><div className="text-xs text-muted">Status</div><StatusPill value={po.status} /></div>
@@ -128,10 +156,21 @@ export default function OrderDetail() {
         <div><div className="text-xs text-muted">Payment</div><StatusPill value={po.payment_status} /></div>
       </div>
 
+      {paid && (
+        <div className="card p-4 mb-4 no-print">
+          <div className="font-serif text-lg mb-2">Payment details</div>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
+            {[['Paid on', fmtDate(po.payment_date)], ['Mode', po.payment_mode], ['Amount paid', inr2(po.payment_amount)], ['Reference', po.payment_reference], ['Recorded by', po.paid_by_name], ['Remarks', po.payment_remarks]]
+              .filter(([, v]) => v).map(([k, v]) => <div key={k}><div className="text-xs text-muted">{k}</div><div className="font-medium break-words">{v}</div></div>)}
+          </div>
+          {po.payment_amount != null && Math.abs(num(po.payment_amount) - total) > 0.005 && <div className="text-xs text-muted mt-2">The amount paid is different from the order value of {inr(total)}.</div>}
+        </div>
+      )}
+
       {Object.entries(groups).map(([pid, vs]) => {
         const p = po.products.find((x) => String(x.product_id) === String(pid));
         return (
-          <div key={pid} className="card mb-4 overflow-hidden print-area">
+          <div key={pid} className="card mb-4 overflow-hidden no-print">
             <div className="flex items-center gap-3 p-3 border-b border-line">
               <Thumb src={p?.photo_url} size={48} />
               <div><div className="font-medium">{p?.product_name || 'Product'}</div><div className="text-xs text-muted font-mono">{p?.v_prod_id}</div></div>
@@ -159,9 +198,24 @@ export default function OrderDetail() {
         );
       })}
 
+      <Modal open={dlg === 'pay'} title={`Payment details for PO-${po.po_id}`} width={480} onClose={() => setDlg(null)}
+        footer={<><button className="btn" onClick={() => setDlg(null)}>Cancel</button><button className="btn btn-primary" disabled={busy} onClick={submitPay}>{busy ? 'Saving…' : 'Save and mark paid'}</button></>}>
+        <div className="grid gap-x-3 sm:grid-cols-2">
+          <Field label="Payment date" required error={payErr.date}><input type="date" className="input" max={today()} {...payField('date')} /></Field>
+          <Field label="Paid by" required error={payErr.mode}>
+            <select className="input" {...payField('mode')}><option value="">Select how it was paid</option>{PAY_MODES.map((m) => <option key={m}>{m}</option>)}</select>
+          </Field>
+        </div>
+        <Field label="Amount paid (Rs)" required error={payErr.amount} hint={`Order value ${inr(total)}`}><input className="input" inputMode="decimal" {...payField('amount')} /></Field>
+        <Field label={pay.mode === 'Cash' ? 'Reference (optional)' : pay.mode === 'Cheque' ? 'Cheque number' : 'Transaction or UTR number'} required={!!pay.mode && pay.mode !== 'Cash'} error={payErr.reference}>
+          <input className="input" maxLength={100} {...payField('reference')} />
+        </Field>
+        <Field label="Remarks"><textarea className="input" rows={2} maxLength={500} {...payField('remarks')} placeholder="Anything worth remembering about this payment" /></Field>
+      </Modal>
+      <div className="print-only"><OrderSheet po={po} vendor={vendor} groups={groups} qty={qty} total={total} deliveryText={st.text} /></div>
       <Confirm open={dlg === 'deliver'} title="Mark as delivered" body={`PO-${po.po_id} will be stamped as delivered now.`} confirmLabel="Mark delivered" busy={busy}
         onConfirm={() => run(() => ordersApi.markDelivered(po.po_id), 'Order marked as delivered.')} onClose={() => setDlg(null)} />
-      <Confirm open={dlg === 'approve'} title="Approve and place order" body={`PO-${po.po_id} will be placed with ${vendor?.vendor_name || 'the vendor'} and ${po.created_by_name || 'the person who created it'} will be notified.`} confirmLabel="Approve and place" busy={busy}
+      <Confirm open={dlg === 'approve'} title="Approve and place order" body={`PO-${po.po_id} will be placed with ${vendor?.vendor_name || 'the supplier'} and ${po.created_by_name || 'the person who created it'} will be notified.`} confirmLabel="Approve and place" busy={busy}
         onConfirm={() => run(() => ordersApi.approve(po.po_id), 'Order approved and placed.')} onClose={() => setDlg(null)} />
       <Modal open={dlg === 'reject'} title={`Reject PO-${po.po_id}`} onClose={() => setDlg(null)}
         footer={<><button className="btn" onClick={() => setDlg(null)}>Cancel</button><button className="btn btn-danger" disabled={busy || !note.trim()} onClick={() => run(() => ordersApi.reject(po.po_id, note.trim()), 'Order rejected. The feedback was sent.')}>Reject order</button></>}>

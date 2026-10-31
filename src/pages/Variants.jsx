@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { resolveImage } from '../config';
 import { inr } from '../lib/format';
-import { colorHexApi, masterApi, productsApi, suggestionsApi, variantsApi } from '../api/endpoints';
+import { masterApi, productsApi, variantsApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { useForm } from '../hooks/useForm';
 import { useToast } from '../context/ToastContext';
 import { Can, DataTable, Drawer, Field, Modal, PageHeader, Spinner, StatusPill, Swatch } from '../components/ui';
-import { isHex } from '../lib/validate';
 import SizePicker from '../components/SizePicker';
 
 // All photos of the product (cover first) so the user can see the product before choosing a variant.
@@ -46,7 +45,7 @@ function ProductGallery({ product, productId }) {
         <div className="font-serif font-semibold text-xl leading-tight">{product?.product_name}</div>
         <div className="font-mono text-xs text-muted mt-0.5">{product?.v_prod_id}</div>
         <div className="mt-3 grid gap-1">
-          <div><span className="text-muted">Price: </span><b>{inr(product?.price)}</b></div>
+          <div><span className="text-muted">Product cost: </span><b>{inr(product?.price)}</b></div>
           {product?.customer_product_id && <div><span className="text-muted">Customer ID: </span>{product.customer_product_id}</div>}
           {product?.remarks && <div><span className="text-muted">Remarks: </span>{product.remarks}</div>}
           <div><span className="text-muted">Photos: </span>{urls.length}</div>
@@ -60,57 +59,61 @@ function ProductGallery({ product, productId }) {
   );
 }
 
-function VariantForm({ productId, onDone, onClose }) {
+function VariantForm({ productId, product, existing, onDone, onClose }) {
   const toast = useToast();
-  const cats = useAsync(() => suggestionsApi.get('category'));
-  const cols = useAsync(() => suggestionsApi.get('colour'));
-  const pats = useAsync(() => masterApi('patterns').list());
-  const [hex, setHex] = useState({ source: 'checking', value: '#8a3230' });
-  const f = useForm({ category: '', color: '', pattern: 'Standard', remarks: '' }, (v) => {
+  const cats = useAsync(() => masterApi('categories').list());
+  const cols = useAsync(() => masterApi('colors').list());
+  const active = (list) => (list || []).filter((x) => x.status === 'active');
+  const same = (x, y) => String(x || '').toLowerCase() === String(y || '').toLowerCase();
+  const isDuplicate = (v) => (existing || []).some((x) => same(x.category_name, v.category) && same(x.color_name, v.color));
+
+  const f = useForm({ category: '', color: '', remarks: '' }, (v) => {
     const e = {};
-    if (!v.category.trim()) e.category = 'Category is required.';
-    if (!v.color.trim()) e.color = 'Colour is required.';
-    if (hex.source === 'none' && !isHex(hex.value)) e.color = 'Pick a swatch colour.';
+    if (!v.category) e.category = 'Choose a category.';
+    if (!v.color) e.color = 'Choose a colour.';
+    if (v.category && v.color && isDuplicate(v)) e.color = `This product already has a ${v.color} variant in ${v.category}.`;
     return e;
   });
 
-  const checkHex = async () => {
-    const name = f.values.color.trim();
-    if (!name) return;
-    try { const r = await colorHexApi.resolve(name); setHex(r.source ? { source: r.source, value: r.hex_code } : { source: 'none', value: hex.value }); }
-    catch { setHex({ source: 'none', value: hex.value }); }
-  };
+  // Start from the product's own category once the list has loaded.
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || !cats.data) return;
+    started.current = true;
+    const own = active(cats.data).find((c) => c.category_id === product?.category_id);
+    if (own) f.set('category', own.category_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cats.data]);
+
+  const hex = active(cols.data).find((c) => same(c.color_name, f.values.color))?.hex_code;
 
   const save = f.submit(async (v) => {
     try {
-      await variantsApi.createQuick({ product_id: Number(productId), category: v.category.trim(), color: v.color.trim(), pattern: v.pattern.trim() || 'Standard', remarks: v.remarks, ...(hex.source === 'none' ? { hex_code: hex.value } : {}) });
+      // strict: the server only accepts values that already exist in the Masters lists.
+      await variantsApi.createQuick({ product_id: Number(productId), category: v.category, color: v.color, remarks: v.remarks, strict: true });
       toast.success('Variant added. Assign sizes next.');
       onDone();
     } catch (e) { toast.error(e.message); }
   });
 
+  const pick = (key, label, list, idKey, nameKey, error) => (
+    <Field label={label} required error={error} hint="Choose from the list. New values are added under Masters.">
+      <select className="input" {...f.bind(key)}>
+        <option value="">Select {label.toLowerCase()}</option>
+        {active(list).map((x) => <option key={x[idKey]} value={x[nameKey]}>{x[nameKey]}</option>)}
+      </select>
+    </Field>
+  );
+
   return (
     <Drawer open title="Add variant" onClose={onClose}
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="variant-form" disabled={f.busy}>{f.busy ? 'Saving…' : 'Add variant'}</button></>}>
       <form id="variant-form" onSubmit={save} noValidate>
-        <Field label="Category" required error={f.errors.category} hint="Pick a suggestion or type a new one. New values are created automatically.">
-          <input className="input" list="v-cats" {...f.bind('category')} /><datalist id="v-cats">{(cats.data || []).map((x) => <option key={x} value={x} />)}</datalist>
-        </Field>
-        <Field label="Colour" required error={f.errors.color}>
-          <div className="flex items-center gap-2">
-            <input className="input" list="v-cols" {...f.bind('color')} onBlur={checkHex} />
-            {hex.source !== 'checking' && <Swatch hex={hex.value} />}
-          </div>
-          <datalist id="v-cols">{(cols.data || []).map((x) => <option key={x} value={x} />)}</datalist>
-        </Field>
-        {hex.source === 'none' && (
-          <Field label="Swatch colour" hint="This colour name is new. Pick how it should look.">
-            <input type="color" value={isHex(hex.value) ? hex.value : '#000000'} onChange={(e) => setHex({ source: 'none', value: e.target.value })} />
-          </Field>
-        )}
-        <Field label="Pattern">
-          <input className="input" list="v-pats" {...f.bind('pattern')} /><datalist id="v-pats">{(pats.data || []).map((x) => <option key={x.pattern_id} value={x.pattern_name} />)}</datalist>
-        </Field>
+        {pick('category', 'Category', cats.data, 'category_id', 'category_name', f.errors.category)}
+        <div className="flex items-end gap-2">
+          <div className="flex-1">{pick('color', 'Colour', cols.data, 'color_id', 'color_name', f.errors.color)}</div>
+          {f.values.color && <span className="mb-3"><Swatch hex={hex} /></span>}
+        </div>
         <Field label="Remarks"><textarea className="input" rows={2} {...f.bind('remarks')} /></Field>
       </form>
     </Drawer>
@@ -159,10 +162,9 @@ export default function Variants() {
       <PageHeader back={{ to: '/products', label: 'Back to Products' }} title={product.data ? `Variants · ${product.data.product_name}` : 'Variants'} sub={<><Link to="/products">Products</Link> / {product.data?.v_prod_id}</>}
         actions={<Can perm="variant.create"><button className="btn btn-primary" onClick={() => setAdd(true)}>Add variant</button></Can>} />
       {product.data && <ProductGallery product={product.data} productId={productId} />}
-      <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No variants yet" emptyHint="Add a colour and pattern, then assign sizes."
+      <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No variants yet" emptyHint="Add a colour, then assign sizes."
         columns={[
           { header: 'Colour', render: (v) => <span className="flex items-center gap-2"><Swatch hex={v.hex_code} />{v.color_name}</span> },
-          { header: 'Pattern', key: 'pattern_name' },
           { header: 'Category', key: 'category_name' },
           { header: 'Gender', render: (v) => v.gender_name || '-' },
           { header: 'Sizes', render: (v) => `${v.size_count} assigned` },
@@ -170,7 +172,7 @@ export default function Variants() {
           { header: 'Status', render: (v) => <StatusPill value={v.status} /> },
           { header: '', className: 'text-right', render: (v) => <Can perm="variant.edit"><button className="btn btn-sm" onClick={() => setSizes(v)}>Assign sizes</button></Can> },
         ]} />
-      {add && <VariantForm productId={productId} onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
+      {add && <VariantForm productId={productId} product={product.data} existing={data} onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
       {sizes && <SizeDrawer variant={sizes} onClose={() => setSizes(null)} onDone={() => { setSizes(null); reload(); }} />}
     </>
   );
