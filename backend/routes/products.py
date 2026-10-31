@@ -2,7 +2,7 @@ import io
 import re
 from flask import Blueprint, request, make_response
 from PIL import Image, ImageOps
-from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, Gender, Pattern, Color, GstMaster
+from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, SubCategory, Gender, Pattern, Color, GstMaster
 from utils import success_response, error_response, validate_json
 
 MAX_PHOTOS = 4
@@ -180,25 +180,53 @@ def get_categories():
         return error_response("Failed to fetch categories", 500)
     return success_response(categories, "Categories fetched successfully")
  
+def _sub_category_names(data):
+    """The sub-category list sent with a category: (names, None), or (None, error_response). None names = not sent."""
+    if 'sub_categories' not in data:
+        return None, None
+    raw = data.get('sub_categories')
+    if not isinstance(raw, list) or len(raw) > 200:
+        return None, error_response("sub_categories must be a list of names.", 400)
+    names, seen = [], set()
+    for item in raw:
+        name = re.sub(r'\s+', ' ', str(item or '')).strip()
+        if not name:
+            continue
+        if len(name) > 150:
+            return None, error_response("A sub-category name can have at most 150 characters.", 400)
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    return names, None
+
 @products_bp.route('/categories', methods=['POST'])
 @validate_json('category_name')
 def create_category():
     data = request.get_json()
+    names, problem = _sub_category_names(data)
+    if problem:
+        return problem
     category_id = Category.create(data.get('category_name'), updated_by=data.get('updated_by'))
-    if category_id:
-        return success_response({'category_id': category_id}, "Category created successfully", 201)
-    return error_response("Failed to create category - name may already exist", 500)
- 
+    if not category_id:
+        return error_response("Failed to create category - name may already exist", 500)
+    if names and not SubCategory.sync(category_id, names, data.get('updated_by')):
+        return error_response("The category was created but its sub-categories could not be saved.", 500)
+    return success_response({'category_id': category_id}, "Category created successfully", 201)
+
 @products_bp.route('/categories/<int:category_id>', methods=['PUT'])
 def update_category(category_id):
-    data = request.get_json()
-    allowed = ['category_name']
-    fields = {k: v for k, v in data.items() if k in allowed}
-    rows = Category.update(category_id, updated_by=data.get('updated_by'), **fields)
-    if rows:
-        return success_response({'category_id': category_id}, "Category updated successfully")
-    return error_response("Failed to update category - check the category_id exists", 404)
- 
+    data = request.get_json() or {}
+    if not Category.get_by_id(category_id):
+        return error_response("Failed to update category - check the category_id exists", 404)
+    names, problem = _sub_category_names(data)
+    if problem:
+        return problem
+    if 'category_name' in data and not Category.update(category_id, updated_by=data.get('updated_by'), category_name=data.get('category_name')):
+        return error_response("Failed to update category - the name may already exist", 409)
+    if names is not None and not SubCategory.sync(category_id, names, data.get('updated_by')):
+        return error_response("The sub-categories could not be saved.", 500)
+    return success_response({'category_id': category_id}, "Category updated successfully")
+
 @products_bp.route('/categories/<int:category_id>/status', methods=['PATCH'])
 @validate_json('status')
 def update_category_status(category_id):
@@ -210,6 +238,42 @@ def update_category_status(category_id):
     if rows:
         return success_response({'category_id': category_id, 'status': status}, "Category status updated")
     return error_response("Failed to update category status - check the category_id exists", 404)
+
+
+# ---------- Sub-category (stored in the database; added and changed from the Categories screen) ----------
+
+@products_bp.route('/sub-categories', methods=['GET'])
+def get_sub_categories():
+    """All sub-categories with their category's name; ?categoryId= limits it to one category."""
+    category_id = request.args.get('categoryId')
+    if category_id and not category_id.isdigit():
+        return error_response("categoryId must be a number", 400)
+    rows = SubCategory.get_all(category_id)
+    if rows is None:
+        return error_response("Failed to fetch sub-categories", 500)
+    return success_response(rows, "Sub-categories fetched successfully")
+
+
+def _category_pair(category_id, sub_category_id):
+    """Checks a product's category / sub-category. Returns (category_id, sub_category_id, None) with the
+    category filled in from the sub-category when only that was sent, or (None, None, error_response)."""
+    def number(v):
+        return int(v) if str(v or '').strip().isdigit() else None
+    cat, sub_id = number(category_id), number(sub_category_id)
+    if category_id not in (None, '') and cat is None or sub_category_id not in (None, '') and sub_id is None:
+        return None, None, error_response("Choose a category and sub-category from the lists.", 400)
+    if sub_id:
+        sub_row = SubCategory.get_by_id(sub_id)
+        if not sub_row or sub_row['status'] != 'active':
+            return None, None, error_response("Choose an active sub-category.", 400)
+        if cat and cat != sub_row['category_id']:
+            return None, None, error_response("This sub-category does not belong to the chosen category.", 400)
+        cat = sub_row['category_id']
+    if cat:
+        cat_row = Category.get_by_id(cat)
+        if not cat_row or cat_row['status'] != 'active':
+            return None, None, error_response("Choose an active category.", 400)
+    return cat, sub_id, None
 
 
 
@@ -448,6 +512,10 @@ def create_product():
     if Product.exists_for_vendor(vendor_id, v_prod_id):
         return error_response("Product is already available", 409)
 
+    category_id, sub_category_id, problem = _category_pair(form.get('category_id'), form.get('sub_category_id'))
+    if problem:
+        return problem
+
     files = request.files.getlist('photos')
     if not files:
         return error_response("At least 1 product photo is required", 400)
@@ -476,6 +544,8 @@ def create_product():
         form.get('remarks', '').strip(),
         price,
         form.get('status', 'active'),
+        category_id,
+        sub_category_id,
     )
 
     if result:
@@ -533,7 +603,18 @@ def update_product(product_id):
     price = data.get('price', 0)
     status = data.get('status', 'active')
 
+    # Category / sub-category are only touched when the caller sends them (the mobile app does not).
+    pair = None
+    if 'category_id' in data or 'sub_category_id' in data:
+        category_id, sub_category_id, problem = _category_pair(data.get('category_id'), data.get('sub_category_id'))
+        if problem:
+            return problem
+        pair = (category_id, sub_category_id)
+
     rows = Product.update(product_id, v_prod_id, product_name, photo_url, customer_product_id, remarks, price, status)
+    if pair is not None:
+        Product.set_categories(product_id, *pair)
+        rows = rows or 1
 
     if rows:
         return success_response({'product_id': product_id}, "Product updated successfully")
@@ -578,6 +659,9 @@ def create_variant():
     pattern_id = data.get('pattern_id')
     color_id = data.get('color_id')
     
+    if Variant.exists(product_id, category_id, color_id):
+        return error_response("This product already has a variant with this category and colour.", 409)
+
     variant_id = Variant.create(product_id, category_id, gender_id, pattern_id, color_id)
     
     if variant_id:
@@ -603,6 +687,21 @@ def create_variant_quick():
     color_hex = data.get('hex_code') or None
     if color_hex and not HEX_CODE_RE.match(color_hex):
         return error_response("hex_code must look like #RRGGBB", 400)
+
+    # strict=true (the admin panel): only existing, active category / colour / pattern are accepted.
+    # Without it (the mobile app) unknown names are created on the fly, as before.
+    if data.get('strict'):
+        if not Category.find_id(category, active_only=True):
+            return error_response("Choose a category from the list.", 400)
+        if not Color.find_id(color, active_only=True):
+            return error_response("Choose a colour from the list.", 400)
+        if data.get('pattern') and not Pattern.find_id(pattern, active_only=True):
+            return error_response("Choose a pattern from the list.", 400)
+
+    # The same product cannot have two variants with the same category and colour.
+    existing_cat, existing_col = Category.find_id(category), Color.find_id(color)
+    if existing_cat and existing_col and Variant.exists(product_id, existing_cat, existing_col):
+        return error_response(f"This product already has a {str(color).strip()} variant in {str(category).strip()}.", 409)
 
     variant_id = Variant.create_from_names(product_id, category, color, pattern, remarks, color_hex=color_hex)
 

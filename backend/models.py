@@ -379,11 +379,13 @@ class Product:
     @staticmethod
     def get_all_by_vendor(vendor_id):
         query = """
-        SELECT p.*, COUNT(v.variant_id) as variant_count
+        SELECT p.*, c.category_name, sc.sub_category_name, COUNT(v.variant_id) as variant_count
         FROM product p
         LEFT JOIN variant v ON p.product_id = v.product_id
+        LEFT JOIN category c ON c.category_id = p.category_id
+        LEFT JOIN sub_category sc ON sc.sub_category_id = p.sub_category_id
         WHERE p.vendor_id = %s AND p.status = 'active'
-        GROUP BY p.product_id
+        GROUP BY p.product_id, c.category_name, sc.sub_category_name
         ORDER BY p.created_date DESC
         """
         return db.execute_query(query, (vendor_id,))
@@ -421,7 +423,7 @@ class Product:
         return bool(db.execute_query(query, (vendor_id, v_prod_id)))
 
     @staticmethod
-    def create_with_photos(vendor_id, v_prod_id, product_name, photos, customer_product_id='', remarks='', price=0, status='active'):
+    def create_with_photos(vendor_id, v_prod_id, product_name, photos, customer_product_id='', remarks='', price=0, status='active', category_id=None, sub_category_id=None):
         """Create a product and store its photos (as BYTEA) in ONE
         transaction - either the product and all its photos are saved, or
         nothing is. photos: list of {'data': bytes, 'mime_type': str} in
@@ -437,11 +439,11 @@ class Product:
             cursor.execute(
                 """
                 INSERT INTO product
-                    (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status, created_date)
-                VALUES (%s, %s, %s, %s, '', %s, %s, %s, NOW())
+                    (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status, category_id, sub_category_id, created_date)
+                VALUES (%s, %s, %s, %s, '', %s, %s, %s, %s, %s, NOW())
                 RETURNING product_id
                 """,
-                (vendor_id, v_prod_id, product_name, customer_product_id, remarks, price, status),
+                (vendor_id, v_prod_id, product_name, customer_product_id, remarks, price, status, category_id, sub_category_id),
             )
             product_id = cursor.fetchone()['product_id']
 
@@ -490,6 +492,13 @@ class Product:
         rows = db.execute_update(query, (v_prod_id, product_name, photo_url, customer_product_id, remarks, price, status, product_id))
         return rows
 
+    @staticmethod
+    def set_categories(product_id, category_id, sub_category_id):
+        """Category and sub-category are saved apart from update(), which older callers (the mobile app) use."""
+        return db.execute_update(
+            "UPDATE product SET category_id = %s, sub_category_id = %s WHERE product_id = %s",
+            (category_id, sub_category_id, product_id))
+
 # class Category:
 #     """Category lookup model"""
 
@@ -513,7 +522,18 @@ class Category:
 
     @staticmethod
     def get_all():
-        query = "SELECT * FROM category ORDER BY category_name ASC"
+        # Each category also lists its sub-categories (stored in sub_category).
+        query = """
+        SELECT c.*,
+               COALESCE(json_agg(json_build_object('sub_category_id', sc.sub_category_id,
+                                                   'sub_category_name', sc.sub_category_name,
+                                                   'status', sc.status) ORDER BY sc.sub_category_name)
+                        FILTER (WHERE sc.sub_category_id IS NOT NULL), '[]'::json) AS sub_categories
+        FROM category c
+        LEFT JOIN sub_category sc ON sc.category_id = c.category_id
+        GROUP BY c.category_id
+        ORDER BY c.category_name ASC
+        """
         return db.execute_query(query)
 
     @staticmethod
@@ -529,6 +549,18 @@ class Category:
             (name,)
         )
         return result
+
+    @staticmethod
+    def find_id(name, active_only=False):
+        """Id of an existing category (by name, ignoring case) or None. Never creates one."""
+        extra = " AND status = 'active'" if active_only else ""
+        rows = db.execute_query(f"SELECT category_id FROM category WHERE LOWER(category_name) = LOWER(%s){extra}", (str(name or '').strip(),))
+        return rows[0]['category_id'] if rows else None
+
+    @staticmethod
+    def get_by_id(category_id):
+        rows = db.execute_query("SELECT category_id, category_name, status FROM category WHERE category_id = %s", (category_id,))
+        return rows[0] if rows else None
 
     @staticmethod
     def create(category_name, updated_by=None):
@@ -556,6 +588,46 @@ class Category:
     def update_status(category_id, status, updated_by=None):
         query = "UPDATE category SET status = %s, updated_by = %s, updated_date = NOW() WHERE category_id = %s"
         return db.execute_update(query, (status, updated_by, category_id))
+
+
+class SubCategory:
+    """Sub-category: a named group inside one category (for example GENTS > AS GT CHAPPAL). Managed from the
+    Categories screen: saving a category saves its list of sub-categories."""
+
+    @staticmethod
+    def get_all(category_id=None):
+        where, params = "", ()
+        if category_id:
+            where, params = "WHERE sc.category_id = %s", (category_id,)
+        return db.execute_query(f"""
+            SELECT sc.sub_category_id, sc.category_id, sc.sub_category_name, sc.status, c.category_name
+            FROM sub_category sc JOIN category c ON c.category_id = sc.category_id
+            {where}
+            ORDER BY c.category_name, sc.sub_category_name""", params)
+
+    @staticmethod
+    def get_by_id(sub_category_id):
+        rows = db.execute_query("SELECT sub_category_id, category_id, sub_category_name, status FROM sub_category WHERE sub_category_id = %s", (sub_category_id,))
+        return rows[0] if rows else None
+
+    @staticmethod
+    def sync(category_id, names, updated_by=None):
+        """Makes `names` the category's active sub-categories: new names are added, names that were switched off
+        come back, and active ones missing from the list are switched off (never deleted, products may use them)."""
+        existing = db.execute_query("SELECT sub_category_id, sub_category_name, status FROM sub_category WHERE category_id = %s", (category_id,)) or []
+        by_name = {r['sub_category_name'].lower(): r for r in existing}
+        wanted = {n.lower() for n in names}
+        queries = []
+        for name in names:
+            row = by_name.get(name.lower())
+            if row is None:
+                queries.append(("INSERT INTO sub_category (category_id, sub_category_name, status, updated_by, created_date, updated_date) VALUES (%s, %s, 'active', %s, NOW(), NOW())", (category_id, name, updated_by)))
+            elif row['status'] != 'active' or row['sub_category_name'] != name:
+                queries.append(("UPDATE sub_category SET status = 'active', sub_category_name = %s, updated_by = %s, updated_date = NOW() WHERE sub_category_id = %s", (name, updated_by, row['sub_category_id'])))
+        for key, row in by_name.items():
+            if key not in wanted and row['status'] == 'active':
+                queries.append(("UPDATE sub_category SET status = 'inactive', updated_by = %s, updated_date = NOW() WHERE sub_category_id = %s", (updated_by, row['sub_category_id'])))
+        return db.execute_transaction(queries) if queries else True
 
 
 class Gender:
@@ -628,6 +700,12 @@ class Pattern:
             (name,)
         )
         return result
+
+    @staticmethod
+    def find_id(name, active_only=False):
+        extra = " AND status = 'active'" if active_only else ""
+        rows = db.execute_query(f"SELECT pattern_id FROM pattern WHERE LOWER(pattern_name) = LOWER(%s){extra}", (str(name or '').strip(),))
+        return rows[0]['pattern_id'] if rows else None
 
     @staticmethod
     def create(pattern_name, updated_by=None):
@@ -705,6 +783,12 @@ class Color:
             (name, hex_code or guess_hex(name))
         )
         return result
+
+    @staticmethod
+    def find_id(name, active_only=False):
+        extra = " AND status = 'active'" if active_only else ""
+        rows = db.execute_query(f"SELECT color_id FROM color WHERE LOWER(color_name) = LOWER(%s){extra}", (str(name or '').strip(),))
+        return rows[0]['color_id'] if rows else None
 
     @staticmethod
     def create(color_name, hex_code='', updated_by=None):
@@ -811,6 +895,13 @@ class Variant:
         query = "SELECT * FROM variant WHERE variant_id = %s AND status = 'active'"
         result = db.execute_query(query, (variant_id,))
         return result[0] if result else None
+
+    @staticmethod
+    def exists(product_id, category_id, color_id):
+        """True if this product already has a variant with this category and colour (any pattern, any status)."""
+        return bool(db.execute_query(
+            "SELECT 1 FROM variant WHERE product_id = %s AND category_id = %s AND color_id = %s LIMIT 1",
+            (product_id, category_id, color_id)))
 
     @staticmethod
     def create(product_id, category_id, gender_id, pattern_id, color_id):
@@ -1278,16 +1369,25 @@ class PurchaseOrder:
         return db.execute_update(query, (expected_delivery_date, updated_by, po_id))
 
     @staticmethod
-    def update_payment_status(po_id, payment_status, updated_by=None):
+    def update_payment_status(po_id, payment_status, updated_by=None, payment=None):
         """Whether the vendor has been paid for this order - entirely
         independent of delivery status. An order can be delivered and
-        still unpaid, or paid before delivery."""
+        still unpaid, or paid before delivery. `payment` holds the details
+        recorded when marking it paid (date, mode, amount, reference,
+        remarks); marking it unpaid clears them."""
+        payment = payment if payment_status == 'paid' else None
         query = """
         UPDATE purchase_order
-        SET payment_status = %s, updated_by = %s, updated_date = NOW()
+        SET payment_status = %s, updated_by = %s, updated_date = NOW(),
+            payment_date = %s, payment_mode = %s, payment_amount = %s,
+            payment_reference = %s, payment_remarks = %s, paid_by = %s
         WHERE po_id = %s
         """
-        return db.execute_update(query, (payment_status, updated_by, po_id))
+        p = payment or {}
+        return db.execute_update(query, (
+            payment_status, updated_by,
+            p.get('date'), p.get('mode'), p.get('amount'), p.get('reference'), p.get('remarks'),
+            updated_by if payment else None, po_id))
 
     @staticmethod
     def _detail_queries(po_id, products_data):
@@ -1472,13 +1572,14 @@ class PurchaseOrder:
         """
         po['sizes'] = db.execute_query(size_query, (po_id,))
 
-        ids = [i for i in (po.get('created_by'), po.get('reviewed_by')) if i]
+        ids = [i for i in (po.get('created_by'), po.get('reviewed_by'), po.get('paid_by')) if i]
         names = {}
         if ids:
             for r in db.execute_query('SELECT user_id, username FROM "User" WHERE user_id = ANY(%s)', (ids,)) or []:
                 names[r['user_id']] = r['username']
         po['created_by_name'] = names.get(po.get('created_by'))
         po['reviewed_by_name'] = names.get(po.get('reviewed_by'))
+        po['paid_by_name'] = names.get(po.get('paid_by'))
 
         return po
 

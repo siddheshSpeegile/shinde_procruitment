@@ -1,5 +1,6 @@
 from flask import Blueprint, request, g
-from datetime import datetime
+import re
+from datetime import datetime, date
 from models import PurchaseOrder, Notification
 from utils import success_response, error_response, validate_json, require_permission, current_user_optional, has_permission
 from audit_log import request_source
@@ -335,6 +336,37 @@ def update_order_expected_delivery_date(po_id):
 
 
 ALLOWED_PAYMENT_STATUSES = {'paid', 'unpaid'}
+PAYMENT_MODES = ('Cash', 'UPI', 'Bank transfer', 'Cheque', 'Card', 'Other')
+
+
+def _payment_details(raw):
+    """Checks the payment details sent when marking an order paid. Returns (details, None) or (None, error text)."""
+    if not isinstance(raw, dict):
+        return None, "Payment details are required to mark an order as paid."
+    try:
+        paid_on = datetime.strptime(str(raw.get('date') or ''), '%Y-%m-%d').date()
+    except ValueError:
+        return None, "Enter the payment date."
+    if paid_on > date.today():
+        return None, "The payment date cannot be in the future."
+    mode = raw.get('mode')
+    if mode not in PAYMENT_MODES:
+        return None, "Choose how it was paid."
+    try:
+        amount = round(float(raw.get('amount')), 2)
+    except (TypeError, ValueError):
+        return None, "Enter the amount paid."
+    if not 0 < amount < 1e11:
+        return None, "The amount paid must be more than 0."
+    reference = re.sub(r'\s+', ' ', str(raw.get('reference') or '')).strip()
+    if len(reference) > 100:
+        return None, "The reference can have at most 100 characters."
+    if mode != 'Cash' and not reference:
+        return None, "Enter the transaction, UTR or cheque number."
+    remarks = str(raw.get('remarks') or '').strip()
+    if len(remarks) > 500:
+        return None, "Remarks can have at most 500 characters."
+    return {'date': paid_on.isoformat(), 'mode': mode, 'amount': amount, 'reference': reference or None, 'remarks': remarks or None}, None
 
 
 @orders_bp.route('/orders/<int:po_id>/payment-status', methods=['PATCH'])
@@ -344,7 +376,8 @@ def update_order_payment_status(po_id):
     independent of delivery status (PATCH /status) - an order can be
     delivered and still unpaid, or paid before it's delivered.
 
-    Body: {"payment_status": "paid" | "unpaid"}
+    Body: {"payment_status": "paid" | "unpaid", "payment": {date, mode, amount, reference?, remarks?}}
+    Marking an order paid needs the payment details; marking it unpaid clears them.
     Drives the dashboard's Amount KPI, which sums only unpaid orders."""
     data = request.get_json()
     payment_status = data.get('payment_status')
@@ -360,13 +393,24 @@ def update_order_payment_status(po_id):
     blocked = _blocked(old)
     if blocked:
         return blocked
-    rows = PurchaseOrder.update_payment_status(po_id, payment_status, actor_id)
+
+    # Once an order is paid that is final: it cannot be marked unpaid, and its payment details cannot be replaced.
+    if old and old.get('payment_status') == 'paid':
+        return error_response("This order is already marked as paid, so its payment status cannot be changed.", 409)
+
+    payment = None
+    if payment_status == 'paid':
+        payment, problem = _payment_details(data.get('payment'))
+        if problem:
+            return error_response(problem, 400)
+    rows = PurchaseOrder.update_payment_status(po_id, payment_status, actor_id, payment)
 
     if rows:
         if old and old.get('payment_status') != payment_status:
             info = Notification.order_summary(po_id)
             _notify('order_payment', po_id, f"PO-{po_id} marked {payment_status}",
-                    f"{info['vendor_name'] if info else 'Vendor'} order payment status is now {payment_status}{_by(actor)}.", actor_id)
+                    f"{info['vendor_name'] if info else 'Supplier'} order payment status is now {payment_status}"
+                    f"{' (' + payment['mode'] + ', Rs ' + format(payment['amount'], ',.0f') + ')' if payment else ''}{_by(actor)}.", actor_id)
         return success_response(
             {'po_id': po_id, 'payment_status': payment_status}, "Payment status updated"
         )
