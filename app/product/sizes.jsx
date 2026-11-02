@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -21,7 +22,10 @@ const SYSTEMS = ["UK", "EUR"];
 const GROUPS = ["Toddler", "Adult"];
 
 // mode='order': only shows sizes already assigned to this variant, for
-//   picking which of them go into THIS order (no DB write on save).
+//   picking which of them go into THIS order (no DB write on save). Each
+//   size has a quantity (2 sizes per row); it's carried into the order (and
+//   the cart) and can still be changed on the order screen.
+// mode='declare': sets which sizes the variant comes in - no quantities.
 export default function AssignSizesScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -37,6 +41,7 @@ export default function AssignSizesScreen() {
 
   const [sizes, setSizes] = useState([]);
   const [selected, setSelected] = useState({});
+  const [qty, setQty] = useState({}); // size_id -> quantity (order mode)
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCart, setSavingCart] = useState(false);
@@ -54,14 +59,21 @@ export default function AssignSizesScreen() {
         const filtered =
           mode === "order" ? fetched.filter((s) => s.assigned) : fetched;
         const sorted = [...filtered].sort(
-          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.size_id - b.size_id,
+          (a, b) =>
+            (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.size_id - b.size_id,
         );
         setSizes(sorted);
         const initial = {};
         sorted.forEach((s) => {
-          initial[s.size_id] = mode === "order" ? true : !!s.assigned;
+          // Order mode starts with nothing picked: every size at qty 0
+          initial[s.size_id] = mode === "order" ? false : !!s.assigned;
         });
         setSelected(initial);
+        const initialQty = {};
+        sorted.forEach((s) => {
+          initialQty[s.size_id] = 0;
+        });
+        setQty(initialQty);
         // Open on the first list that has a ticked size (or the first one there is).
         const first = sorted.find((s) => initial[s.size_id]) || sorted[0];
         if (first?.size_system) {
@@ -82,6 +94,26 @@ export default function AssignSizesScreen() {
   const toggle = (sizeId) =>
     setSelected((prev) => ({ ...prev, [sizeId]: !prev[sizeId] }));
 
+  // Quantity helpers (order mode). Every size starts at 0. The tick follows
+  // the quantity: above 0 = ticked (goes into the order), 0 = not ticked.
+  // While typing the box may be empty; it counts (and is put back) as 0.
+  const qtyOf = (sizeId) => Math.max(0, parseInt(qty[sizeId], 10) || 0);
+  const setQtyAndTick = (sizeId, value) => {
+    setQty((prev) => ({ ...prev, [sizeId]: value }));
+    setSelected((prev) => ({
+      ...prev,
+      [sizeId]: (parseInt(value, 10) || 0) > 0,
+    }));
+  };
+  const typeQty = (sizeId, text) =>
+    setQtyAndTick(sizeId, text.replace(/[^0-9]/g, ""));
+  const stepQty = (sizeId, delta) =>
+    setQtyAndTick(sizeId, Math.max(0, qtyOf(sizeId) + delta));
+  const fixQty = (sizeId) => setQtyAndTick(sizeId, qtyOf(sizeId));
+  // Tapping a size: ticks it at qty 1, or unticks it back to 0
+  const toggleOrderSize = (sizeId) =>
+    setQtyAndTick(sizeId, selected[sizeId] ? 0 : 1);
+
   const handleContinue = async () => {
     const selectedIds = Object.keys(selected)
       .filter((id) => selected[id])
@@ -95,6 +127,7 @@ export default function AssignSizesScreen() {
         size_label: s.size_label,
         size_system: s.size_system,
         size_group: s.size_group,
+        qty: qtyOf(s.size_id),
       }));
 
     if (mode === "declare") {
@@ -158,6 +191,9 @@ export default function AssignSizesScreen() {
           product_id: variant?.product_id,
           variant_id: variant?.variant_id,
           size_ids: selectedIds,
+          quantities: Object.fromEntries(
+            selectedIds.map((id) => [id, qtyOf(id)]),
+          ),
         }),
       });
       if (data.success) {
@@ -170,6 +206,9 @@ export default function AssignSizesScreen() {
   };
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
+  const totalQty = sizes
+    .filter((s) => selected[s.size_id])
+    .reduce((sum, s) => sum + qtyOf(s.size_id), 0);
 
   // Which lists exist (for ordering, only the lists that hold assigned sizes) and the sizes of the open list.
   const countIn = (test) =>
@@ -208,6 +247,8 @@ export default function AssignSizesScreen() {
   const sidePadding = 20;
   const tileSize =
     (width - sidePadding * 2 - gap * (numColumns - 1)) / numColumns;
+  // Order mode: 2 sizes per row, each with its quantity
+  const qtyCardWidth = (width - sidePadding * 2 - gap) / 2;
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
@@ -250,6 +291,7 @@ export default function AssignSizesScreen() {
       </View>
 
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 20,
@@ -266,6 +308,7 @@ export default function AssignSizesScreen() {
           <>
             <Text style={styles.assignedTitle}>
               Assigned Size ({selectedCount})
+              {mode === "order" ? `  ·  Total Qty ${totalQty}` : ""}
             </Text>
             <View style={styles.tabRow}>
               {systemsShown.map((x) => (
@@ -274,7 +317,9 @@ export default function AssignSizesScreen() {
                   onPress={() => pickSystem(x)}
                   style={[styles.tab, system === x && styles.tabOn]}
                 >
-                  <Text style={[styles.tabText, system === x && styles.tabTextOn]}>
+                  <Text
+                    style={[styles.tabText, system === x && styles.tabTextOn]}
+                  >
                     {x}
                     {countIn((s) => s.size_system === x)
                       ? `  (${countIn((s) => s.size_system === x)})`
@@ -290,9 +335,13 @@ export default function AssignSizesScreen() {
                   onPress={() => setGroup(g)}
                   style={[styles.tab, group === g && styles.tabOn]}
                 >
-                  <Text style={[styles.tabText, group === g && styles.tabTextOn]}>
+                  <Text
+                    style={[styles.tabText, group === g && styles.tabTextOn]}
+                  >
                     {g}
-                    {countIn((s) => s.size_system === system && s.size_group === g)
+                    {countIn(
+                      (s) => s.size_system === system && s.size_group === g,
+                    )
                       ? `  (${countIn((s) => s.size_system === system && s.size_group === g)})`
                       : ""}
                   </Text>
@@ -306,31 +355,82 @@ export default function AssignSizesScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            <View style={[styles.grid, { gap }]}>
-              {listSizes.map((s) => {
-                const on = selected[s.size_id];
-                return (
-                  <TouchableOpacity
-                    key={s.size_id}
-                    onPress={() => toggle(s.size_id)}
-                    style={{ width: tileSize, height: tileSize }}
-                  >
-                    {on ? (
-                      <LinearGradient
-                        colors={["#7a2f2b", "#c98f86"]}
-                        style={styles.sizeTile}
+            {mode === "order" ? (
+              <View style={[styles.grid, { gap }]}>
+                {listSizes.map((s) => {
+                  const on = selected[s.size_id];
+                  return (
+                    <View
+                      key={s.size_id}
+                      style={[
+                        styles.qtyCard,
+                        on && styles.qtyCardOn,
+                        { width: qtyCardWidth },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        onPress={() => toggleOrderSize(s.size_id)}
+                        style={styles.qtyCardTop}
                       >
-                        <Text style={styles.sizeTextOn}>{s.size_value}</Text>
-                      </LinearGradient>
-                    ) : (
-                      <View style={[styles.sizeTile, styles.sizeTileOff]}>
-                        <Text style={styles.sizeTextOff}>{s.size_value}</Text>
+                        <View style={[styles.check, on && styles.checkOn]}>
+                          {on ? <Text style={styles.checkMark}>✓</Text> : null}
+                        </View>
+                        <Text style={styles.qtySizeText}>{s.size_value}</Text>
+                      </TouchableOpacity>
+                      <View style={[styles.stepper, !on && { opacity: 0.45 }]}>
+                        <TouchableOpacity
+                          onPress={() => stepQty(s.size_id, -1)}
+                          style={styles.stepBtn}
+                        >
+                          <Text style={styles.stepBtnText}>−</Text>
+                        </TouchableOpacity>
+                        <TextInput
+                          value={String(qty[s.size_id] ?? 1)}
+                          onChangeText={(t) => typeQty(s.size_id, t)}
+                          onBlur={() => fixQty(s.size_id)}
+                          keyboardType="number-pad"
+                          maxLength={5}
+                          selectTextOnFocus
+                          style={styles.qtyInput}
+                        />
+                        <TouchableOpacity
+                          onPress={() => stepQty(s.size_id, 1)}
+                          style={styles.stepBtn}
+                        >
+                          <Text style={styles.stepBtnText}>+</Text>
+                        </TouchableOpacity>
                       </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={[styles.grid, { gap }]}>
+                {listSizes.map((s) => {
+                  const on = selected[s.size_id];
+                  return (
+                    <TouchableOpacity
+                      key={s.size_id}
+                      onPress={() => toggle(s.size_id)}
+                      style={{ width: tileSize, height: tileSize }}
+                    >
+                      {on ? (
+                        <LinearGradient
+                          colors={["#7a2f2b", "#c98f86"]}
+                          style={styles.sizeTile}
+                        >
+                          <Text style={styles.sizeTextOn}>{s.size_value}</Text>
+                        </LinearGradient>
+                      ) : (
+                        <View style={[styles.sizeTile, styles.sizeTileOff]}>
+                          <Text style={styles.sizeTextOff}>{s.size_value}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </>
         )}
 
@@ -436,7 +536,13 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" },
+  tabRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+    alignItems: "center",
+  },
   tab: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -464,6 +570,66 @@ const styles = StyleSheet.create({
   },
   sizeTextOn: { fontSize: 20, fontWeight: "800", color: "#fff" },
   sizeTextOff: { fontSize: 20, fontWeight: "800", color: "#1c1210" },
+  qtyCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#dcd6d2",
+    backgroundColor: "#fff",
+    padding: 10,
+    gap: 10,
+  },
+  qtyCardOn: { borderColor: "#8a3230", backgroundColor: "#fbf4f2" },
+  qtyCardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#bdb3af",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkOn: { backgroundColor: "#8a3230", borderColor: "#8a3230" },
+  checkMark: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  qtySizeText: { fontSize: 20, fontWeight: "800", color: "#1c1210" },
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    width: "100%",
+  },
+  stepBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#8a3230",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBtnText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  qtyInput: {
+    // flexBasis 0 + minWidth 0: the box takes only the space left between the
+    // two buttons (on the web an input otherwise keeps a wide default width)
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    height: 34,
+    borderWidth: 1.5,
+    borderColor: "#e5ddd8",
+    borderRadius: 8,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1c1210",
+    paddingVertical: 0,
+    backgroundColor: "#fff",
+  },
   continueBtn: { borderRadius: 16, paddingVertical: 14, alignItems: "center" },
   continueText: { color: "#fff", fontSize: 17, fontWeight: "800" },
   cartBtn: {

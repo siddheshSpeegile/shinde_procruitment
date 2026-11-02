@@ -2,7 +2,7 @@ import io
 import re
 from flask import Blueprint, request, make_response
 from PIL import Image, ImageOps
-from models import Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, SubCategory, Gender, Pattern, Color, GstMaster
+from models import Brand, Product, ProductPhoto, Suggestions, Variant, Size, VariantSize, Vendor, Category, SubCategory, Gender, Pattern, Color, GstMaster
 from utils import success_response, error_response, validate_json
 
 MAX_PHOTOS = 4
@@ -241,6 +241,15 @@ def update_category_status(category_id):
 
 
 # ---------- Sub-category (stored in the database; added and changed from the Categories screen) ----------
+
+@products_bp.route('/brands', methods=['GET'])
+def get_brands():
+    """Every brand for the Add Product dropdown: [{brand_key, brand_name}], from shinde_shoes."DimBrand"."""
+    rows = Brand.get_all()
+    if rows is None:
+        return error_response("Failed to fetch brands", 500)
+    return success_response(rows, "Brands fetched successfully")
+
 
 @products_bp.route('/sub-categories', methods=['GET'])
 def get_sub_categories():
@@ -516,6 +525,18 @@ def create_product():
     if problem:
         return problem
 
+    # Optional brand (older app versions don't send one). The name is taken
+    # from the master table, not from the app, so it's always the official one.
+    brand_key, brand_name = None, None
+    raw_brand = (form.get('brand_key') or '').strip()
+    if raw_brand:
+        if not raw_brand.isdigit():
+            return error_response("Choose a brand from the list.", 400)
+        brand = Brand.get_by_key(int(raw_brand))
+        if not brand:
+            return error_response("Choose a brand from the list.", 400)
+        brand_key, brand_name = brand['brand_key'], brand['brand_name']
+
     files = request.files.getlist('photos')
     if not files:
         return error_response("At least 1 product photo is required", 400)
@@ -546,6 +567,8 @@ def create_product():
         form.get('status', 'active'),
         category_id,
         sub_category_id,
+        brand_key,
+        brand_name,
     )
 
     if result:
@@ -697,6 +720,14 @@ def create_variant_quick():
             return error_response("Choose a colour from the list.", 400)
         if data.get('pattern') and not Pattern.find_id(pattern, active_only=True):
             return error_response("Choose a pattern from the list.", 400)
+
+    # master=dim (the mobile app): the category / colour were picked from the master lists
+    # (shinde_shoes."DimCategory" / "DimColour"), so anything not on those lists is refused.
+    if data.get('master') == 'dim':
+        if not Suggestions.contains('category', category):
+            return error_response("Choose a category from the list.", 400)
+        if not Suggestions.contains('colour', color):
+            return error_response("Choose a colour from the list.", 400)
 
     # The same product cannot have two variants with the same category and colour.
     existing_cat, existing_col = Category.find_id(category), Color.find_id(color)

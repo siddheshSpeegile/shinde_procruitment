@@ -111,7 +111,7 @@ export default function DashboardScreen() {
             bg="#cfe0f7"
             iconBg="#2f5fc4"
             value={stats.vendors}
-            label="Vendors"
+            label="Suppliers"
             icon={
               <>
                 <Path d="M3 9l1-5h16l1 5" />

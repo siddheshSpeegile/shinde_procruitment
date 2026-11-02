@@ -17,6 +17,9 @@ import Svg, { Path, Rect } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../api/config";
 import NavBar from "../components/NavBar";
 import RefreshButton from "../components/RefreshButton";
+import Alert from "../utils/alert";
+import { buildOrdersReportHtml } from "../utils/ordersReport";
+import { printHtml } from "../utils/printHtml";
 
 // Formats a Date object as YYYY-MM-DD using its LOCAL calendar date -
 // never use date.toISOString().slice(0, 10) for this. toISOString()
@@ -51,6 +54,7 @@ export default function OrdersListScreen() {
   const [dateTo, setDateTo] = useState(null);
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -74,6 +78,38 @@ export default function OrdersListScreen() {
   }, [vendor?.vendor_id, filter, dateFrom, dateTo]);
 
   const filteredOrders = orders;
+
+  // Supplier Workspace -> Orders: print / save as PDF every order shown on
+  // screen (current filters), with each order's products and size lines.
+  const printOrders = async () => {
+    if (orders.length === 0) {
+      Alert.alert("Nothing to print", "There are no orders in this list.");
+      return;
+    }
+    setPrinting(true);
+    try {
+      const results = await Promise.all(
+        orders.map((o) => apiFetch(`/orders/${o.id}`).catch(() => null)),
+      );
+      const details = {};
+      results.forEach((r, i) => {
+        if (r?.success) details[orders[i].id] = r.data;
+      });
+      const html = buildOrdersReportHtml({
+        supplierName: vendor?.vendor_name || "All Suppliers",
+        filter,
+        dateFrom: dateFrom ? toLocalDateString(dateFrom) : null,
+        dateTo: dateTo ? toLocalDateString(dateTo) : null,
+        orders,
+        details,
+      });
+      await printHtml(html);
+    } catch (err) {
+      console.error("Failed to print orders", err);
+      Alert.alert("Could not print", "Please try again.");
+    }
+    setPrinting(false);
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
@@ -102,7 +138,39 @@ export default function OrdersListScreen() {
               : `All Orders (${orders.length})`}
           </Text>
         </View>
-        <RefreshButton onPress={fetchOrders} refreshing={loading} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {vendor ? (
+            <TouchableOpacity
+              onPress={printOrders}
+              disabled={printing || loading}
+              style={[
+                styles.printBtn,
+                (printing || loading) && { opacity: 0.5 },
+              ]}
+            >
+              {printing ? (
+                <ActivityIndicator size="small" color="#8a3230" />
+              ) : (
+                <Svg
+                  width={18}
+                  height={18}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#8a3230"
+                  strokeWidth={2}
+                >
+                  <Path d="M12 3v12" />
+                  <Path d="M7 10l5 5 5-5" />
+                  <Path d="M5 21h14" />
+                </Svg>
+              )}
+              <Text style={styles.printBtnText}>
+                {printing ? "Preparing…" : "Download"}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <RefreshButton onPress={fetchOrders} refreshing={loading} />
+        </View>
       </View>
 
       <View style={styles.filterRow}>
@@ -329,6 +397,18 @@ function FilterPill({ label, active, colors, onPress }) {
 }
 
 const styles = StyleSheet.create({
+  printBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: "#8a3230",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: "#fff",
+  },
+  printBtnText: { color: "#8a3230", fontSize: 12.5, fontWeight: "700" },
   screen: { flex: 1, backgroundColor: "#f5f3f0" },
   header: {
     flexDirection: "row",

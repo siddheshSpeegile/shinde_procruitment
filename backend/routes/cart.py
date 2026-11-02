@@ -108,7 +108,21 @@ def add_to_cart():
     if not isinstance(size_ids, list) or len(size_ids) == 0:
         return error_response("size_ids must be a non-empty list", 400)
 
-    cart_id = Cart.add_with_sizes(vendor_id, product_id, variant_id, size_ids)
+    # Optional {size_id: qty} from the Assign Sizes screen (JSON keys arrive
+    # as strings). Every quantity must be a whole number of at least 1.
+    raw_quantities = data.get('quantities')
+    quantities = None
+    if raw_quantities is not None:
+        if not isinstance(raw_quantities, dict):
+            return error_response("quantities must be an object of size_id: qty", 400)
+        try:
+            quantities = {int(k): int(v) for k, v in raw_quantities.items()}
+        except (TypeError, ValueError):
+            return error_response("Each quantity must be a whole number", 400)
+        if any(q < 1 or q > 100000 for q in quantities.values()):
+            return error_response("Each quantity must be at least 1", 400)
+
+    cart_id = Cart.add_with_sizes(vendor_id, product_id, variant_id, size_ids, quantities)
 
     if cart_id:
         return success_response({'cart_id': cart_id}, "Added to cart", 201)

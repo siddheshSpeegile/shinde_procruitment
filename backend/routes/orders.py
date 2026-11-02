@@ -2,6 +2,7 @@ from flask import Blueprint, request, g
 import re
 from datetime import datetime, date
 from models import PurchaseOrder, Notification
+from database import db
 from utils import success_response, error_response, validate_json, require_permission, current_user_optional, has_permission
 from audit_log import request_source
 
@@ -333,6 +334,54 @@ def update_order_expected_delivery_date(po_id):
         )
     else:
         return error_response("Order not found", 404)
+
+
+@orders_bp.route('/orders/check-duplicates', methods=['POST'])
+@validate_json('variant_ids')
+def check_duplicate_variants():
+    """Before an order is placed: which of its variants are already in another purchase order that is not delivered yet?
+    Body: {"variant_ids": [1, 2], "exclude_po_id": 7 (optional, the order being edited)}.
+    Returns one entry per variant that appears in earlier orders (up to 5 each, newest first); an empty list
+    means nothing was ordered before. It only informs: the person decides whether to reorder."""
+    data = request.get_json()
+    raw = data.get('variant_ids')
+    if not isinstance(raw, list) or len(raw) > 200 or not all(isinstance(v, int) and not isinstance(v, bool) for v in raw):
+        return error_response("variant_ids must be a list of variant ids.", 400)
+    exclude = data.get('exclude_po_id')
+    if exclude is not None and (not isinstance(exclude, int) or isinstance(exclude, bool)):
+        return error_response("exclude_po_id must be a number.", 400)
+    ids = sorted(set(raw))
+    if not ids:
+        return success_response([], "Nothing to check")
+
+    rows = PurchaseOrder.earlier_orders_for_variants(ids, exclude)
+    by_variant = {}
+    for r in rows:
+        by_variant.setdefault(r['variant_id'], []).append(r)
+    if not by_variant:
+        return success_response([], "No earlier orders for these variants")
+
+    info = {r['variant_id']: r for r in (db.execute_query("""
+        SELECT v.variant_id, col.color_name, c.category_name, p.product_name, p.v_prod_id
+        FROM variant v JOIN product p ON p.product_id = v.product_id
+        LEFT JOIN color col ON col.color_id = v.color_id LEFT JOIN category c ON c.category_id = v.category_id
+        WHERE v.variant_id = ANY(%s)""", (list(by_variant),)) or [])}
+    out = []
+    for vid, orders in by_variant.items():
+        i = info.get(vid, {})
+        out.append({
+            'variant_id': vid,
+            'product_name': i.get('product_name'), 'product_code': i.get('v_prod_id'),
+            'variant': ' · '.join(x for x in (i.get('color_name'), i.get('category_name')) if x) or f'Variant #{vid}',
+            'total_orders': len(orders),
+            'orders': [{
+                'po_id': o['po_id'], 'order_date': o['order_date'].isoformat() if o['order_date'] else None,
+                'status': o['status'], 'delivered_date': o['delivered_date'].isoformat() if o['delivered_date'] else None,
+                'payment_status': o['payment_status'], 'supplier': o['vendor_name'], 'created_by': o['created_by_name'],
+                'quantity': int(o['qty']), 'amount': float(o['amount']), 'sizes': o['sizes'],
+            } for o in orders[:5]],
+        })
+    return success_response(out, "Some of these variants were ordered before")
 
 
 ALLOWED_PAYMENT_STATUSES = {'paid', 'unpaid'}

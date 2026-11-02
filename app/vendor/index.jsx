@@ -54,8 +54,8 @@ export default function SelectVendorScreen() {
   const openVendor = (vendor) => {
     if (vendor.status === "inactive") {
       Alert.alert(
-        "Inactive Vendor",
-        "This vendor is inactive. Please contact your admin.",
+        "Inactive Supplier",
+        "This supplier is inactive. Please contact your admin.",
       );
       return;
     }
@@ -86,7 +86,7 @@ export default function SelectVendorScreen() {
               </Svg>
             </LinearGradient>
           </TouchableOpacity>
-          <Text style={styles.title}>Select Vendor</Text>
+          <Text style={styles.title}>Select Supplier</Text>
         </View>
         <RefreshButton onPress={fetchVendors} refreshing={loading} />
       </View>
@@ -105,7 +105,7 @@ export default function SelectVendorScreen() {
         </Svg>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search Vendor..."
+          placeholder="Search Supplier..."
           placeholderTextColor="#8a7c78"
           value={search}
           onChangeText={setSearch}
@@ -162,7 +162,7 @@ export default function SelectVendorScreen() {
             gap: 12,
           }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No vendors found</Text>
+            <Text style={styles.emptyText}>No suppliers found</Text>
           }
           renderItem={({ item }) => {
             const isActive = item.status === "active";

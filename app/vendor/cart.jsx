@@ -444,6 +444,7 @@ export default function CartListScreen() {
             name: row.product_name || row.v_prod_id,
             image: row.photo_url,
             price: row.price,
+            brand_name: row.brand_name,
             variants: {},
           };
         }
@@ -464,6 +465,7 @@ export default function CartListScreen() {
           size_label: row.size_label,
           size_system: row.size_system,
           size_group: row.size_group,
+          qty: row.qty, // saved on Assign Sizes; editable on the order screen
         });
       });
 

@@ -56,6 +56,7 @@ export default function VariantCatalogScreen() {
       image: product?.photo_url,
       product_id: product?.product_id,
       price: product?.price,
+      brand_name: product?.brand_name,
     };
     router.push({
       pathname: "/product/sizes",

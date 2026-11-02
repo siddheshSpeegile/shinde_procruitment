@@ -32,6 +32,7 @@ RULES = {
     'cart.add_to_cart': ('cart.create',),
     'cart.remove_from_cart': ('cart.delete',),
     'orders.create_order': ('purchase_order.create',),
+    'orders.check_duplicate_variants': ('purchase_order.create',),
     'order_drafts.list_drafts': ('purchase_order.create',),
     'order_drafts.get_draft': ('purchase_order.create',),
     'order_drafts.create_draft': ('purchase_order.create',),

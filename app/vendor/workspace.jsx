@@ -182,7 +182,7 @@ export default function VendorWorkspaceScreen() {
               </Svg>
             </LinearGradient>
           </TouchableOpacity>
-          <Text style={styles.title}>Vendor Workspace</Text>
+          <Text style={styles.title}>Supplier Workspace</Text>
         </View>
         <RefreshButton onPress={loadStats} refreshing={loading} />
       </View>
@@ -363,7 +363,11 @@ export default function VendorWorkspaceScreen() {
             title="Orders"
             subtitle="View Order"
             onPress={() =>
-              router.push({ pathname: "/orders", params: { vendorJson } })
+              // Opens on this supplier's pending orders
+              router.push({
+                pathname: "/orders",
+                params: { vendorJson, filter: "pending" },
+              })
             }
             icon={
               <>
@@ -380,7 +384,7 @@ export default function VendorWorkspaceScreen() {
         onClose={() => setLogoPickerVisible(false)}
         onPickCamera={pickLogoFromCamera}
         onPickGallery={pickLogoFromGallery}
-        title="Update Vendor Logo"
+        title="Update Supplier Logo"
         subtitle="Choose how you'd like to add the logo"
       />
 

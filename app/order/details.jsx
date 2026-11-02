@@ -542,6 +542,8 @@ import {
   View,
 } from "react-native";
 import Alert from "../../utils/alert";
+import { buildOrderPreviewHtml } from "../../utils/ordersReport";
+import { printHtml } from "../../utils/printHtml";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../../api/config";
@@ -593,7 +595,8 @@ export default function ProductDetailsScreen() {
             code: p.code || p.v_prod_id,
             name: p.name || p.product_name,
             image: p.image || p.photo_url,
-            qty: 1,
+            // Quantity picked on Assign Sizes (or saved in the cart); 1 if none
+            qty: Number(s.qty) > 0 ? Number(s.qty) : 1,
             gst: "0",
             // Always the product's own price (set on Add Product) - never
             // overwritten by past orders, unlike MRP/GST below. Number()
@@ -608,7 +611,15 @@ export default function ProductDetailsScreen() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [hiddenVariantIds, setHiddenVariantIds] = useState(() => new Set());
+  // "Variants in this order" switches start OFF: every variant's sizes are
+  // hidden from the table until switched on (display only - hidden rows are
+  // still part of the order). Only shown when there is more than 1 variant.
+  const [hiddenVariantIds, setHiddenVariantIds] = useState(
+    () =>
+      new Set(
+        products.flatMap((p) => (p.variants || []).map((v) => v.variant_id)),
+      ),
+  );
 
   // Prefill mrp/gst from the most recent order that used each exact
   // variant+size combination, if any - saves retyping known pricing every
@@ -651,7 +662,9 @@ export default function ProductDetailsScreen() {
   const changeQty = (key, delta) => {
     setRows((prev) =>
       prev.map((r) =>
-        rowKey(r) === key ? { ...r, qty: Math.max(0, r.qty + delta) } : r,
+        rowKey(r) === key
+          ? { ...r, qty: Math.max(0, Number(r.qty || 0) + delta) }
+          : r,
       ),
     );
   };
@@ -706,12 +719,110 @@ export default function ProductDetailsScreen() {
   const totalAmount = rows.reduce((sum, r) => sum + rowAmount(r), 0);
 
   const singleProduct = !isMultiProduct ? products[0] : null;
+  // Brand(s) of the product(s) in this order, e.g. "ADIDAS" or "ADIDAS, NIKE"
+  const orderBrand =
+    [...new Set(products.map((p) => p.brand_name).filter(Boolean))].join(
+      ", ",
+    ) || "—";
   const singleVariant = singleProduct
     ? (singleProduct.variants || [])[0]
     : null;
 
+  const [downloading, setDownloading] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
+
+  // Download: a report (print / save as PDF) of this order as it is on screen
+  // right now - before it's placed - e.g. to share and check it first.
+  const handleDownload = async () => {
+    setError("");
+    setDownloading(true);
+    try {
+      const brandByProduct = {};
+      products.forEach((p) => {
+        brandByProduct[p.product_id] = p.brand_name;
+      });
+      await printHtml(
+        buildOrderPreviewHtml({
+          supplierName: vendor?.vendor_name || "Supplier",
+          poDate,
+          expectedDeliveryDate,
+          remarks,
+          rows,
+          brandByProduct,
+        }),
+      );
+    } catch (err) {
+      console.error("Failed to download order", err);
+      setError("Could not create the report. Please try again.");
+    }
+    setDownloading(false);
+  };
+
+  // Add To Cart: keep these products / sizes (with their quantities) in this
+  // supplier's cart to order later instead of now. Cost, MRP and GST aren't
+  // stored in the cart - they're filled in again when ordering from it.
+  const handleAddToCart = async () => {
+    setError("");
+    if (rows.some((r) => !(Number(r.qty) >= 1))) {
+      setError("Enter a quantity of at least 1 for every size.");
+      return;
+    }
+    setAddingToCart(true);
+    try {
+      // The cart takes one product + variant at a time
+      const groups = {};
+      rows.forEach((r) => {
+        const key = `${r.product_id}-${r.variant_id}`;
+        if (!groups[key])
+          groups[key] = {
+            product_id: r.product_id,
+            variant_id: r.variant_id,
+            quantities: {},
+          };
+        groups[key].quantities[r.size_id] = Number(r.qty);
+      });
+      for (const g of Object.values(groups)) {
+        const data = await apiFetch("/cart", {
+          method: "POST",
+          body: JSON.stringify({
+            vendor_id: vendor?.vendor_id,
+            product_id: g.product_id,
+            variant_id: g.variant_id,
+            size_ids: Object.keys(g.quantities).map(Number),
+            quantities: g.quantities,
+          }),
+        });
+        if (!data.success)
+          throw new Error(data.message || "Failed to add to cart");
+      }
+      Alert.alert(
+        "Added to cart",
+        "These products and sizes are in the cart with their quantities. Cost, MRP and GST are filled in again when you order from the cart.",
+        [
+          {
+            text: "OK",
+            onPress: () =>
+              router.replace({
+                pathname: "/vendor/cart",
+                params: { vendorJson },
+              }),
+          },
+        ],
+      );
+    } catch (err) {
+      console.error("Failed to add to cart", err);
+      setError(err.message || "Failed to add to cart");
+    }
+    setAddingToCart(false);
+  };
+
   const handleOrderProduct = async () => {
     setError("");
+    // Qty can be typed now, so it may be empty or 0 - every size needs at least 1
+    if (rows.some((r) => !(Number(r.qty) >= 1))) {
+      setError("Enter a quantity of at least 1 for every size.");
+      return;
+    }
     setSaving(true);
     try {
       // Rebuild the nested products -> variants -> sizes structure the
@@ -881,7 +992,7 @@ export default function ProductDetailsScreen() {
 
         <View style={styles.infoGrid}>
           <InfoCell
-            label="Vendor Name"
+            label="Supplier Name"
             value={vendor?.vendor_name || "—"}
             border
           />
@@ -897,6 +1008,7 @@ export default function ProductDetailsScreen() {
                 : "Multiple"
             }
           />
+          <InfoCell label="Brand" value={orderBrand} wide />
         </View>
 
         {showVariantToggles && (
@@ -924,6 +1036,12 @@ export default function ProductDetailsScreen() {
                 </View>
               ))}
             </View>
+            {visibleRows.length === 0 ? (
+              <Text style={styles.variantsHint}>
+                Turn on a variant above to see and edit its sizes. All variants
+                are included in the order either way.
+              </Text>
+            ) : null}
           </>
         )}
 
@@ -969,7 +1087,16 @@ export default function ProductDetailsScreen() {
                     >
                       <Text style={styles.qtyBtnText}>−</Text>
                     </TouchableOpacity>
-                    <Text style={styles.qtyValue}>{r.qty}</Text>
+                    <TextInput
+                      value={String(r.qty)}
+                      onChangeText={(t) =>
+                        updateField(key, "qty", t.replace(/[^0-9]/g, ""))
+                      }
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      selectTextOnFocus
+                      style={styles.qtyValue}
+                    />
                     <TouchableOpacity
                       onPress={() => changeQty(key, 1)}
                       style={styles.qtyBtn}
@@ -1037,6 +1164,27 @@ export default function ProductDetailsScreen() {
 
         <View style={styles.actionsRow}>
           <TouchableOpacity
+            onPress={handleDownload}
+            disabled={downloading}
+            style={[styles.secondaryBtn, downloading && { opacity: 0.6 }]}
+          >
+            <Text style={styles.secondaryBtnText}>
+              {downloading ? "Preparing…" : "Download"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleAddToCart}
+            disabled={addingToCart}
+            style={[styles.secondaryBtn, addingToCart && { opacity: 0.6 }]}
+          >
+            <Text style={styles.secondaryBtnText}>
+              {addingToCart ? "Adding…" : "Add To Cart"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.actionsRow}>
+          <TouchableOpacity
             onPress={() => router.back()}
             style={styles.cancelBtn}
           >
@@ -1066,12 +1214,13 @@ export default function ProductDetailsScreen() {
   );
 }
 
-function InfoCell({ label, value, border }) {
+function InfoCell({ label, value, border, wide }) {
   return (
     <View
       style={[
         styles.infoCell,
         border && { borderRightWidth: 1, borderColor: "#f0e2df" },
+        wide && { width: "100%", borderTopWidth: 1, borderColor: "#f0e2df" },
       ]}
     >
       <View style={styles.infoIconWrap}>
@@ -1296,12 +1445,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   qtyBtnText: { fontSize: 14, fontWeight: "800", color: "#1c1210" },
+  variantsHint: { fontSize: 12.5, color: "#8a7c78", marginTop: 6 },
   qtyValue: {
     fontSize: 13,
     fontWeight: "800",
     color: "#1c1210",
-    minWidth: 16,
+    minWidth: 30,
     textAlign: "center",
+    paddingVertical: 0,
+    paddingHorizontal: 2,
   },
   summaryRow: { flexDirection: "row", gap: 10 },
   summaryCard: {
@@ -1332,6 +1484,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   cancelText: { fontSize: 16, fontWeight: "800", color: "#1c1210" },
+  secondaryBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: "#8a3230",
+    borderRadius: 16,
+    paddingVertical: 13,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  secondaryBtnText: { color: "#8a3230", fontSize: 15, fontWeight: "800" },
   orderBtn: { borderRadius: 16, paddingVertical: 14, alignItems: "center" },
   orderBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 });

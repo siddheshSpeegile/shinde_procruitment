@@ -85,7 +85,7 @@ export default function NavBar({ active, vendor }) {
       />
       <NavButton
         icon="vendor"
-        label="Vendor"
+        label="Supplier"
         active={active === "vendor"}
         onPress={goVendor}
       />

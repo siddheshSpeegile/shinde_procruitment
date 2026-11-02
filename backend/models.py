@@ -372,6 +372,15 @@ class Suggestions:
             return None
         return [list(r.values())[0] for r in rows]
 
+    @staticmethod
+    def contains(field, value):
+        """True if value is one of this field's listed values (ignoring case
+        and surrounding spaces) - e.g. a category really is in DimCategory."""
+        wanted = (value or '').strip().lower()
+        return bool(wanted) and any(
+            (option or '').strip().lower() == wanted for option in (Suggestions.get(field) or [])
+        )
+
 
 class Product:
     """Product model"""
@@ -423,7 +432,7 @@ class Product:
         return bool(db.execute_query(query, (vendor_id, v_prod_id)))
 
     @staticmethod
-    def create_with_photos(vendor_id, v_prod_id, product_name, photos, customer_product_id='', remarks='', price=0, status='active', category_id=None, sub_category_id=None):
+    def create_with_photos(vendor_id, v_prod_id, product_name, photos, customer_product_id='', remarks='', price=0, status='active', category_id=None, sub_category_id=None, brand_key=None, brand_name=None):
         """Create a product and store its photos (as BYTEA) in ONE
         transaction - either the product and all its photos are saved, or
         nothing is. photos: list of {'data': bytes, 'mime_type': str} in
@@ -439,11 +448,11 @@ class Product:
             cursor.execute(
                 """
                 INSERT INTO product
-                    (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status, category_id, sub_category_id, created_date)
-                VALUES (%s, %s, %s, %s, '', %s, %s, %s, %s, %s, NOW())
+                    (vendor_id, v_prod_id, product_name, customer_product_id, photo_url, remarks, price, status, category_id, sub_category_id, brand_key, brand_name, created_date)
+                VALUES (%s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s, %s, NOW())
                 RETURNING product_id
                 """,
-                (vendor_id, v_prod_id, product_name, customer_product_id, remarks, price, status, category_id, sub_category_id),
+                (vendor_id, v_prod_id, product_name, customer_product_id, remarks, price, status, category_id, sub_category_id, brand_key, brand_name),
             )
             product_id = cursor.fetchone()['product_id']
 
@@ -588,6 +597,30 @@ class Category:
     def update_status(category_id, status, updated_by=None):
         query = "UPDATE category SET status = %s, updated_by = %s, updated_date = NOW() WHERE category_id = %s"
         return db.execute_update(query, (status, updated_by, category_id))
+
+
+class Brand:
+    """Brands for the Add Product dropdown, from the master table
+    shinde_shoes."DimBrand" (mixed-case names, so quoted and schema-qualified).
+    UNKNOWN_* are placeholder rows, not real brands."""
+
+    @staticmethod
+    def get_all():
+        query = """
+        SELECT "BrandKey" AS brand_key, TRIM("BrandName") AS brand_name
+        FROM shinde_shoes."DimBrand"
+        WHERE TRIM(COALESCE("BrandName", '')) <> '' AND "BrandName" NOT LIKE 'UNKNOWN%%'
+        ORDER BY TRIM("BrandName")
+        """
+        return db.execute_query(query)
+
+    @staticmethod
+    def get_by_key(brand_key):
+        rows = db.execute_query(
+            'SELECT "BrandKey" AS brand_key, TRIM("BrandName") AS brand_name FROM shinde_shoes."DimBrand" WHERE "BrandKey" = %s',
+            (brand_key,),
+        )
+        return rows[0] if rows else None
 
 
 class SubCategory:
@@ -1113,7 +1146,8 @@ class Cart:
         SELECT c.*, p.v_prod_id, p.product_name, p.photo_url,
                COUNT(DISTINCT v.variant_id) as variant_count,
                ARRAY_AGG(DISTINCT s.size_value) FILTER (WHERE s.size_value IS NOT NULL) as selected_sizes,
-               ARRAY_AGG(DISTINCT (s.size_system || ' ' || s.size_group || ' ' || s.size_value)) FILTER (WHERE s.size_value IS NOT NULL) as selected_size_labels
+               ARRAY_AGG(DISTINCT (s.size_system || ' ' || s.size_group || ' ' || s.size_value || ' x' || cs.qty)) FILTER (WHERE s.size_value IS NOT NULL) as selected_size_labels,
+               COALESCE(SUM(cs.qty), 0) as total_qty
         FROM cart c
         JOIN product p ON c.product_id = p.product_id
         LEFT JOIN variant v ON v.product_id = p.product_id
@@ -1147,23 +1181,30 @@ class Cart:
         return existing[0]['cart_id'] if existing else None
 
     @staticmethod
-    def add_with_sizes(vendor_id, product_id, variant_id, size_ids):
+    def add_with_sizes(vendor_id, product_id, variant_id, size_ids, quantities=None):
         """Add a product to the vendor's cart along with the specific
         variant+size combinations picked. If the product is already in the
-        cart, reuses that same cart row and just adds the new sizes -
-        sizes already present are silently skipped (no duplicates)."""
+        cart, reuses that same cart row and just adds the new sizes (no
+        duplicates).
+
+        quantities: optional {size_id: qty} from the Assign Sizes screen. When
+        given, a size that's already in the cart gets the new quantity; when
+        not given (older app versions), new sizes get qty 1 and sizes already
+        in the cart are left as they are."""
         cart_id = Cart.add(vendor_id, product_id)
         if not cart_id or not size_ids:
             return cart_id
 
+        on_conflict = "DO UPDATE SET qty = EXCLUDED.qty" if quantities else "DO NOTHING"
         queries = []
         for size_id in size_ids:
-            query = """
-            INSERT INTO cart_size (cart_id, variant_id, size_id, created_date)
-            VALUES (%s, %s, %s, NOW())
-            ON CONFLICT (cart_id, variant_id, size_id) DO NOTHING
+            qty = (quantities or {}).get(size_id, 1)
+            query = f"""
+            INSERT INTO cart_size (cart_id, variant_id, size_id, qty, created_date)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (cart_id, variant_id, size_id) {on_conflict}
             """
-            queries.append((query, (cart_id, variant_id, size_id)))
+            queries.append((query, (cart_id, variant_id, size_id, qty)))
         db.execute_transaction(queries)
         return cart_id
 
@@ -1188,10 +1229,11 @@ class Cart:
         product+variant+size, with all the display fields those screens
         already expect (code, name, image, category/pattern/color, price)."""
         query = """
-        SELECT p.product_id, p.v_prod_id, p.product_name, p.photo_url, p.price,
+        SELECT p.product_id, p.v_prod_id, p.product_name, p.photo_url, p.price, p.brand_name,
                v.variant_id, cat.category_name, pat.pattern_name, col.color_name, col.hex_code,
                s.size_id, s.size_value, s.size_system, s.size_group,
-               (s.size_system || ' ' || s.size_group || ' ' || s.size_value) AS size_label
+               (s.size_system || ' ' || s.size_group || ' ' || s.size_value) AS size_label,
+               cs.qty
         FROM cart c
         JOIN cart_size cs ON cs.cart_id = c.cart_id
         JOIN product p ON p.product_id = c.product_id
@@ -1367,6 +1409,27 @@ class PurchaseOrder:
         WHERE po_id = %s
         """
         return db.execute_update(query, (expected_delivery_date, updated_by, po_id))
+
+    @staticmethod
+    def earlier_orders_for_variants(variant_ids, exclude_po_id=None):
+        """Other purchase orders that already contain any of these variants and are still open: orders that were
+        delivered are finished and rejected ones were never placed, so both are left out. One row per variant and order, newest first, with the quantity, amount and the
+        sizes ordered for that variant in that order."""
+        return db.execute_query("""
+            SELECT psd.variant_id, po.po_id, po.order_date, po.expected_delivery_date, po.delivered_date, po.status,
+                   po.payment_status, ven.vendor_name, u.username AS created_by_name,
+                   SUM(psd.qty) AS qty, SUM(psd.qty * psd.cost) AS amount,
+                   STRING_AGG(s.size_system || ' ' || s.size_group || ' ' || s.size_value || ' x' || psd.qty::int,
+                              ', ' ORDER BY s.sort_order, s.size_id) AS sizes
+            FROM po_size_detail psd
+            JOIN purchase_order po ON po.po_id = psd.po_id
+            JOIN vendor ven ON ven.vendor_id = po.vendor_id
+            JOIN size s ON s.size_id = psd.size_id
+            LEFT JOIN "User" u ON u.user_id = po.created_by
+            WHERE psd.variant_id = ANY(%s) AND po.status NOT IN ('rejected', 'delivered') AND (%s::int IS NULL OR po.po_id <> %s::int)
+            GROUP BY psd.variant_id, po.po_id, ven.vendor_name, u.username
+            ORDER BY po.order_date DESC, po.po_id DESC
+        """, (list(variant_ids), exclude_po_id, exclude_po_id)) or []
 
     @staticmethod
     def update_payment_status(po_id, payment_status, updated_by=None, payment=None):

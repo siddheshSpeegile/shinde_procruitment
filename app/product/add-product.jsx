@@ -20,6 +20,7 @@ import { authHeaders } from "../../api/authHeaders";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
 import PhotoPickerModal from "../../components/PhotoPickerModal";
+import SearchSelectModal from "../../components/SearchSelectModal";
 import SaveToGalleryButton from "../../components/SaveToGalleryButton";
 import { photoPart } from "../../utils/photoFormData";
 import { saveCameraPhotos } from "../../utils/saveToGallery";
@@ -31,6 +32,9 @@ export default function AddProductScreen() {
 
   const [vendorProductId, setVendorProductId] = useState("");
   const [productName, setProductName] = useState("");
+  // Product Name follows the Supplier Product ID as it is typed, until the
+  // user types their own name (clearing the name makes it follow again).
+  const [nameEdited, setNameEdited] = useState(false);
   const [customerProductId, setCustomerProductId] = useState("");
   const [price, setPrice] = useState("");
   const [remark, setRemark] = useState("");
@@ -43,6 +47,13 @@ export default function AddProductScreen() {
 
   const [customerIdOptions, setCustomerIdOptions] = useState([]);
   const [remarkOptions, setRemarkOptions] = useState([]);
+  // Sub-category (picked) decides the Category (shown, not picked) - same
+  // rule as the admin panel. Brands come from the DimBrand master list.
+  const [subCategories, setSubCategories] = useState([]);
+  const [subCategory, setSubCategory] = useState(null); // {sub_category_id, category_id, ...}
+  const [brands, setBrands] = useState([]);
+  const [brand, setBrand] = useState(null); // {brand_key, brand_name}
+  const [openPicker, setOpenPicker] = useState(null); // "subCategory" | "brand" | null
 
   useEffect(() => {
     apiFetch("/suggestions/customer_product_id")
@@ -58,18 +69,36 @@ export default function AddProductScreen() {
         if (data.success) setRemarkOptions(data.data || []);
       })
       .catch((err) => console.error("Failed to fetch remark suggestions", err));
+
+    apiFetch("/sub-categories")
+      .then((data) => {
+        if (data.success)
+          setSubCategories(
+            (data.data || []).filter((s) => s.status === "active"),
+          );
+      })
+      .catch((err) => console.error("Failed to fetch sub-categories", err));
+
+    apiFetch("/brands")
+      .then((data) => {
+        if (data.success) setBrands(data.data || []);
+      })
+      .catch((err) => console.error("Failed to fetch brands", err));
   }, []);
 
   // One specific message per problem, in the same order as the form, so
   // the user knows exactly what to fix (not one combined catch-all).
   const validate = () => {
     const errors = [];
-    if (!vendorProductId.trim()) errors.push("Vendor Product ID is required.");
+    if (!vendorProductId.trim())
+      errors.push("Supplier Product ID is required.");
     if (!productName.trim()) errors.push("Product Name is required.");
+    if (!subCategory) errors.push("Sub-category is required.");
+    if (!brand) errors.push("Brand is required.");
     if (!price.trim()) {
-      errors.push("Product Price is required.");
+      errors.push("Product Cost is required.");
     } else if (isNaN(Number(price)) || Number(price) < 0) {
-      errors.push("Product Price must be a valid number (0 or more).");
+      errors.push("Product Cost must be a valid number (0 or more).");
     }
     if (photos.length === 0) errors.push("At least 1 photo is required.");
 
@@ -178,6 +207,13 @@ export default function AddProductScreen() {
     formData.append("price", String(Number(price)));
     formData.append("remarks", remark.trim());
     formData.append("status", "active");
+    // The backend fills in / checks the category from the sub-category
+    formData.append(
+      "sub_category_id",
+      String(subCategory?.sub_category_id ?? ""),
+    );
+    formData.append("category_id", String(subCategory?.category_id ?? ""));
+    formData.append("brand_key", String(brand?.brand_key ?? ""));
     // SDK 57 replaced the global fetch with Expo's own WinterCG-compliant
     // expo/fetch, whose FormData encoder only accepts strings, real Blob
     // objects, or objects exposing bytes() - it throws "Unsupported
@@ -221,6 +257,10 @@ export default function AddProductScreen() {
         // Carried down Add Variant -> Assign Sizes -> Variant Catalog -> order
         // screens, where it prefills the Cost column - without it cost shows 0.
         price: Number(price),
+        // Shown on the order screens (Brand appears on Product Details)
+        brand_name: brand?.brand_name,
+        category_name: subCategory?.category_name,
+        sub_category_name: subCategory?.sub_category_name,
       };
       // returnTo=workspace tells the downstream Add Variant -> Assign Sizes
       // chain to land back on the Vendor Workspace once sizes are saved.
@@ -271,11 +311,14 @@ export default function AddProductScreen() {
         }}
       >
         <FormField
-          label="Vendor Product ID"
+          label="Supplier Product ID"
           required
           value={vendorProductId}
-          onChange={setVendorProductId}
-          placeholder="Enter Vendor Product ID...."
+          onChange={(t) => {
+            setVendorProductId(t);
+            if (!nameEdited) setProductName(t);
+          }}
+          placeholder="Enter Supplier Product ID...."
           icon={
             <>
               <Rect x="3" y="4" width="18" height="16" rx="3" />
@@ -287,12 +330,55 @@ export default function AddProductScreen() {
           label="Product Name"
           required
           value={productName}
-          onChange={setProductName}
+          onChange={(t) => {
+            setProductName(t);
+            setNameEdited(t.trim() !== "");
+          }}
           placeholder="Enter Product Name...."
           icon={
             <>
               <Path d="M20.6 12 12 20.6a2 2 0 0 1-2.8 0L3.4 14.8a2 2 0 0 1 0-2.8L12 3.4l8.6 8.6Z" />
               <Circle cx="14" cy="9" r="1.4" fill="#fff" stroke="none" />
+            </>
+          }
+        />
+        <SelectField
+          label="Sub-category"
+          required
+          value={subCategory?.sub_category_name}
+          placeholder="Select Sub-category...."
+          onPress={() => setOpenPicker("subCategory")}
+          icon={
+            <>
+              <Path d="M3 3h8v8H3z" />
+              <Path d="M13 13h8v8h-8z" />
+              <Path d="M13 3h8v8h-8z" />
+            </>
+          }
+        />
+        <SelectField
+          label="Category"
+          value={subCategory?.category_name}
+          placeholder="Filled in from the Sub-category"
+          disabled
+          icon={
+            <>
+              <Path d="M3 3h8v8H3z" />
+              <Path d="M13 3h8v8h-8z" />
+              <Path d="M3 13h8v8H3z" />
+              <Path d="M13 13h8v8h-8z" />
+            </>
+          }
+        />
+        <SelectField
+          label="Brand"
+          required
+          value={brand?.brand_name}
+          placeholder="Select Brand...."
+          onPress={() => setOpenPicker("brand")}
+          icon={
+            <>
+              <Path d="M12 2l3 6.5 7 .8-5.2 4.7 1.5 7L12 17.4 5.7 21l1.5-7L2 9.3l7-.8L12 2z" />
             </>
           }
         />
@@ -310,12 +396,12 @@ export default function AddProductScreen() {
           }
         />
         <FormField
-          label="Product Price"
+          label="Product Cost"
           required
           keyboardType="numeric"
           value={price}
           onChange={setPrice}
-          placeholder="Enter Product Price...."
+          placeholder="Enter Product Cost...."
           icon={
             <>
               <Rect x="3" y="6" width="18" height="13" rx="2" />
@@ -436,6 +522,40 @@ export default function AddProductScreen() {
         </TouchableOpacity>
       </ScrollView>
 
+      <SearchSelectModal
+        visible={openPicker === "subCategory"}
+        title="Select Sub-category"
+        searchPlaceholder="Search sub-category or category..."
+        options={subCategories.map((s) => ({
+          value: s.sub_category_id,
+          label: s.sub_category_name,
+          sublabel: s.category_name,
+          row: s,
+        }))}
+        selectedValue={subCategory?.sub_category_id}
+        onSelect={(o) => {
+          setSubCategory(o.row);
+          setOpenPicker(null);
+        }}
+        onClose={() => setOpenPicker(null)}
+      />
+      <SearchSelectModal
+        visible={openPicker === "brand"}
+        title="Select Brand"
+        searchPlaceholder="Search brand..."
+        options={brands.map((b) => ({
+          value: b.brand_key,
+          label: b.brand_name,
+          row: b,
+        }))}
+        selectedValue={brand?.brand_key}
+        onSelect={(o) => {
+          setBrand(o.row);
+          setOpenPicker(null);
+        }}
+        onClose={() => setOpenPicker(null)}
+      />
+
       <PhotoPickerModal
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
@@ -445,6 +565,60 @@ export default function AddProductScreen() {
 
       <NavBar active="vendor" vendor={vendor} />
     </SafeAreaView>
+  );
+}
+
+// A field that opens a pick-from-list sheet (Sub-category, Brand), styled
+// like FormField. disabled = shown but not tappable (Category).
+function SelectField({
+  label,
+  required,
+  value,
+  placeholder,
+  icon,
+  onPress,
+  disabled,
+}) {
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={styles.fieldLabelRow}>
+        <LinearGradient
+          colors={["#7a2f2b", "#c98f86"]}
+          style={styles.fieldIconWrap}
+        >
+          <Svg
+            width={16}
+            height={16}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#fff"
+            strokeWidth={2.2}
+          >
+            {icon}
+          </Svg>
+        </LinearGradient>
+        <Text style={styles.fieldLabelText}>
+          {label} {required && <Text style={{ color: "#d0342c" }}>*</Text>}
+        </Text>
+      </View>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={disabled}
+        style={[
+          styles.textInput,
+          styles.selectBox,
+          disabled && styles.selectBoxDisabled,
+        ]}
+      >
+        <Text
+          style={[styles.selectText, !value && styles.selectPlaceholder]}
+          numberOfLines={1}
+        >
+          {value || placeholder}
+        </Text>
+        {!disabled ? <Text style={styles.selectChevron}>▾</Text> : null}
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -542,6 +716,16 @@ const styles = StyleSheet.create({
     color: "#241210",
     backgroundColor: "#fff",
   },
+  selectBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  selectBoxDisabled: { backgroundColor: "#f3efec", borderColor: "#d8cfcb" },
+  selectText: { flex: 1, fontSize: 15, color: "#241210" },
+  selectPlaceholder: { color: "#8a7c78" },
+  selectChevron: { fontSize: 14, color: "#8a3230" },
   photoHint: { fontSize: 12, color: "#8a7c78" },
   photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   photoItem: { alignItems: "center", gap: 4 },

@@ -15,6 +15,7 @@ import Svg, { Circle, Path } from "react-native-svg";
 import { apiFetch, resolveImageUrl } from "../../api/config";
 import AutocompleteInput from "../../components/AutocompleteInput";
 import NavBar from "../../components/NavBar";
+import SearchSelectModal from "../../components/SearchSelectModal";
 
 // Offered when a colour name can't be matched to a swatch automatically.
 const PALETTE = [
@@ -53,6 +54,10 @@ export default function AddVariantScreen() {
   const [saving, setSaving] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [colorOptions, setColorOptions] = useState([]);
+  const [openPicker, setOpenPicker] = useState(null); // "category" | "color" | null
+  // "category|colour" (lower-case) of this product's existing variants - the
+  // same product can't have two variants with the same Category + Colour.
+  const [existingCombos, setExistingCombos] = useState(() => new Set());
   // Swatch colour for whatever is typed in Color: { name, hex, source } from
   // GET /colors/hex. hex is null when the name couldn't be recognised (e.g.
   // "ASST", "MULTI") - the user then has to pick one (pickedHex) to save.
@@ -103,15 +108,41 @@ export default function AddVariantScreen() {
         if (data.success) setColorOptions(data.data || []);
       })
       .catch((err) => console.error("Failed to fetch colors", err));
+
+    if (product?.product_id) {
+      apiFetch(`/variants?productId=${product.product_id}`)
+        .then((data) => {
+          if (!data.success) return;
+          setExistingCombos(
+            new Set(
+              (data.data || []).map((v) =>
+                `${(v.category_name || "").trim()}|${(v.color_name || "").trim()}`.toLowerCase(),
+              ),
+            ),
+          );
+        })
+        .catch((err) =>
+          console.error("Failed to fetch existing variants", err),
+        );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isDuplicate =
+    !!category.trim() &&
+    !!color.trim() &&
+    existingCombos.has(`${category.trim()}|${color.trim()}`.toLowerCase());
+
   const validate = () => {
-    if (!category.trim() || !color.trim()) {
-      setError("Category and Color are required.");
-      return false;
-    }
-    setError("");
-    return true;
+    const errors = [];
+    if (!category.trim()) errors.push("Category is required.");
+    if (!color.trim()) errors.push("Color is required.");
+    if (isDuplicate)
+      errors.push(
+        `This product already has a ${color.trim()} variant in ${category.trim()}.`,
+      );
+    setError(errors.join("\n"));
+    return errors.length === 0;
   };
 
   const handleSave = async () => {
@@ -138,6 +169,9 @@ export default function AddVariantScreen() {
           category: category.trim(),
           color: name,
           remarks: remarks.trim(),
+          // Category/Colour were picked from the master (Dim) lists - the
+          // server checks they really are on those lists
+          master: "dim",
           // Only sent when the name couldn't be matched automatically
           ...(info.hex ? {} : { hex_code: pickedHex }),
         }),
@@ -240,9 +274,8 @@ export default function AddVariantScreen() {
           label="Category"
           required
           value={category}
-          onChange={setCategory}
-          placeholder="Enter Category...."
-          suggestions={categoryOptions}
+          placeholder="Select Category...."
+          onPress={() => setOpenPicker("category")}
           icon={
             <>
               <Path d="M3 3h8v8H3z" />
@@ -256,11 +289,15 @@ export default function AddVariantScreen() {
           label="Color"
           required
           value={color}
-          onChange={setColor}
-          placeholder="Enter Color...."
-          suggestions={colorOptions}
+          placeholder="Select Color...."
+          onPress={() => setOpenPicker("color")}
           icon={<Circle cx="12" cy="12" r="9" />}
         />
+        {isDuplicate ? (
+          <Text style={styles.error}>
+            {`This product already has a ${color.trim()} variant in ${category.trim()} - choose a different Category or Color.`}
+          </Text>
+        ) : null}
         {colorInfo?.hex && colorInfo.name === color.trim() ? (
           <View style={styles.colorPreviewRow}>
             <View style={[styles.swatch, { backgroundColor: colorInfo.hex }]} />
@@ -329,6 +366,33 @@ export default function AddVariantScreen() {
         </TouchableOpacity>
       </ScrollView>
 
+      <SearchSelectModal
+        visible={openPicker === "category"}
+        title="Select Category"
+        searchPlaceholder="Search category..."
+        options={categoryOptions.map((c) => ({ value: c, label: c }))}
+        selectedValue={category}
+        onSelect={(o) => {
+          setCategory(o.value);
+          setError("");
+          setOpenPicker(null);
+        }}
+        onClose={() => setOpenPicker(null)}
+      />
+      <SearchSelectModal
+        visible={openPicker === "color"}
+        title="Select Color"
+        searchPlaceholder="Search color..."
+        options={colorOptions.map((c) => ({ value: c, label: c }))}
+        selectedValue={color}
+        onSelect={(o) => {
+          setColor(o.value);
+          setError("");
+          setOpenPicker(null);
+        }}
+        onClose={() => setOpenPicker(null)}
+      />
+
       <NavBar active="vendor" vendor={vendor} />
     </SafeAreaView>
   );
@@ -342,6 +406,7 @@ function FormField({
   placeholder,
   icon,
   suggestions,
+  onPress,
 }) {
   return (
     <View style={{ gap: 10 }}>
@@ -365,7 +430,21 @@ function FormField({
           {label} {required && <Text style={{ color: "#d0342c" }}>*</Text>}
         </Text>
       </View>
-      {suggestions ? (
+      {onPress ? (
+        // Pick-only field: opens a list, typing a new value isn't possible
+        <TouchableOpacity
+          onPress={onPress}
+          style={[styles.textInput, styles.selectBox]}
+        >
+          <Text
+            style={[styles.selectText, !value && styles.selectPlaceholder]}
+            numberOfLines={1}
+          >
+            {value || placeholder}
+          </Text>
+          <Text style={styles.selectChevron}>▾</Text>
+        </TouchableOpacity>
+      ) : suggestions ? (
         <AutocompleteInput
           value={value}
           onChange={onChange}
@@ -454,6 +533,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   error: { color: "#b3261e", fontSize: 13 },
+  selectBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  selectText: { flex: 1, fontSize: 14, color: "#1c1210" },
+  selectPlaceholder: { color: "#8a7c78" },
+  selectChevron: { fontSize: 14, color: "#8a3230" },
   colorPreviewRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -407,6 +407,7 @@ export default function CreatePurchaseOrderScreen() {
             name: p.name || p.product_name,
             image: p.image || p.photo_url,
             size: s.size_label || s.size_value,
+            qty: s.qty,
           });
         });
       });
@@ -421,6 +422,7 @@ export default function CreatePurchaseOrderScreen() {
         name: variant?.name,
         image: variant?.image,
         price: variant?.price,
+        brand_name: variant?.brand_name,
         variants: [
           {
             variant_id: variant?.variant_id,
@@ -439,6 +441,7 @@ export default function CreatePurchaseOrderScreen() {
       name: variant?.name,
       image: variant?.image,
       size: s.size_label || s.size_value,
+      qty: s.qty,
     }));
   }
 
@@ -675,7 +678,10 @@ export default function CreatePurchaseOrderScreen() {
                   <Path d="M3 7l9-4 9 4-9 4-9-4Z" />
                   <Path d="M3 12l9 4 9-4M3 17l9 4 9-4" />
                 </Svg>
-                <Text style={styles.sizeChipText}>Size - {p.size}</Text>
+                <Text style={styles.sizeChipText}>
+                  Size - {p.size}
+                  {p.qty ? `  ·  Qty ${p.qty}` : ""}
+                </Text>
               </View>
             </View>
           </LinearGradient>
