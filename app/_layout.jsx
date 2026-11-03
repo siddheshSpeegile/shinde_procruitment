@@ -23,8 +23,51 @@
 //   );
 // }
 
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { useEffect, useState } from "react";
+import { StyleSheet, View } from "react-native";
+import { getSession } from "../api/session";
+import LoadingScreen from "../components/LoadingScreen";
+
+// Screens anyone may open without being logged in: the splash (app/index)
+// and Login. Every other screen - also when opened by typing its address in
+// the web app - needs a saved login, or the user is sent to Login.
+const PUBLIC_ROUTES = ["login"];
 
 export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  const router = useRouter();
+  const segments = useSegments();
+  const firstSegment = segments[0];
+  const isPublic = !firstSegment || PUBLIC_ROUTES.includes(firstSegment);
+  // null = still checking, true / false = logged in or not
+  const [loggedIn, setLoggedIn] = useState(null);
+
+  // Re-checked on every screen change, so logging in / out is picked up
+  // straight away.
+  useEffect(() => {
+    let active = true;
+    getSession().then((session) => {
+      if (!active) return;
+      setLoggedIn(!!session);
+      if (!session && !isPublic) router.replace("/login");
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstSegment, segments.join("/")]);
+
+  // A protected screen is covered (never shown) until the login is confirmed.
+  const blocked = !isPublic && loggedIn !== true;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }} />
+      {blocked ? (
+        <View style={StyleSheet.absoluteFill}>
+          <LoadingScreen />
+        </View>
+      ) : null}
+    </View>
+  );
 }

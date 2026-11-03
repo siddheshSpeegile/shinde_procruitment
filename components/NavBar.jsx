@@ -1,7 +1,9 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, TouchableOpacity } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
+import useKeyboardVisible from "../hooks/useKeyboardVisible";
 
 const ICONS = {
   home: (
@@ -66,6 +68,10 @@ function NavButton({ icon, label, active, onPress }) {
 // tab knows whether to go to the workspace or the vendor picker
 export default function NavBar({ active, vendor }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  // Hidden while the keyboard is open - otherwise the screen shrinks and the
+  // bar jumps up to sit on top of the keyboard.
+  const keyboardVisible = useKeyboardVisible();
 
   const goHome = () => router.replace("/dashboard");
   // "Vendor" always goes to the full vendors list, regardless of which
@@ -75,8 +81,14 @@ export default function NavBar({ active, vendor }) {
   // Cart button intentionally removed from bottom nav - the only entry
   // point to the Cart List screen is the "Cart" action card on the
   // Vendor Workspace screen.
+  if (keyboardVisible) return null;
+
   return (
-    <LinearGradient colors={["#5c2422", "#3a1516"]} style={styles.bar}>
+    <LinearGradient
+      colors={["#5c2422", "#3a1516"]}
+      // keep clear of the phone's own system bar / gesture area
+      style={[styles.bar, { paddingBottom: 14 + insets.bottom }]}
+    >
       <NavButton
         icon="home"
         label="Home"
@@ -101,6 +113,10 @@ export default function NavBar({ active, vendor }) {
 
 const styles = StyleSheet.create({
   bar: {
+    // Always pinned to the bottom of the screen, even when the content above
+    // is short (a loading spinner, an empty list) and doesn't fill the space.
+    marginTop: "auto",
+    flexShrink: 0,
     flexDirection: "row",
     justifyContent: "space-around",
     paddingTop: 8,

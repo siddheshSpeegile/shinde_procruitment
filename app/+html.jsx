@@ -13,7 +13,7 @@ export default function Root({ children }) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <title>Shinde Procurement</title>
 
@@ -24,14 +24,17 @@ export default function Root({ children }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="Shinde" />
-        <meta
-          name="apple-mobile-web-app-status-bar-style"
-          content="default"
-        />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
         <ScrollViewStyleReset />
-        <style>{"body { background-color: #f5f3f0; }"}</style>
+        {/* Keep the app frame still: no page bounce / pull-to-refresh dragging the
+            top and bottom bars around - only the lists inside scroll. */}
+        <style>
+          {
+            "html, body { background-color: #f5f3f0; overscroll-behavior: none; }"
+          }
+        </style>
       </head>
       <body>{children}</body>
     </html>

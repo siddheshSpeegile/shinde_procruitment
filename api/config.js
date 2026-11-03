@@ -1,4 +1,5 @@
-import { getSession } from "./session";
+import { router } from "expo-router";
+import { clearSession, getSession } from "./session";
 
 // // Replace with your machine's actual LAN IP (run `ipconfig` on Windows,
 // // look for IPv4 Address under your WiFi adapter - NOT 127.0.0.1/localhost).
@@ -60,5 +61,12 @@ export async function apiFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+  // Sign-in missing, expired or no longer valid: forget it and go to Login,
+  // instead of every screen silently showing empty data. (The login request
+  // itself is excluded - a wrong password also answers 401.)
+  if (res.status === 401 && !path.startsWith("/auth/login")) {
+    await clearSession();
+    router.replace("/login");
+  }
   return res.json();
 }

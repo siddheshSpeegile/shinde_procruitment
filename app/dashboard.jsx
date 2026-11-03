@@ -82,29 +82,28 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setSidebarVisible(true)}>
-            <Svg
-              width={26}
-              height={26}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#1c1210"
-              strokeWidth={2}
-            >
-              <Circle cx="12" cy="8" r="4" />
-              <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
-            </Svg>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Dashboard</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <RefreshButton onPress={fetchDashboard} refreshing={loading} />
-            <NotificationBell />
-          </View>
+      {/* Header stays fixed at the top - only the content below scrolls */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+          <Svg
+            width={26}
+            height={26}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#1c1210"
+            strokeWidth={2}
+          >
+            <Circle cx="12" cy="8" r="4" />
+            <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+          </Svg>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Dashboard</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <RefreshButton onPress={fetchDashboard} refreshing={loading} />
+          <NotificationBell />
         </View>
-
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
         {/* Stat cards */}
         <View style={styles.statGrid}>
           <StatCard
