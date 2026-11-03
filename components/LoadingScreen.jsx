@@ -1,14 +1,11 @@
 import React from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import FlippingLogo from "./FlippingLogo";
 
 export default function LoadingScreen() {
   return (
     <View style={styles.container}>
-      <Image
-        source={require("../assets/images/loading-screen.png")}
-        style={styles.image}
-        resizeMode="contain"
-      />
+      <FlippingLogo width="78%" flip={false} />
     </View>
   );
 }
@@ -20,5 +17,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  image: { width: "100%", height: "100%" },
 });

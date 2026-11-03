@@ -62,7 +62,10 @@ export default function RootLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* After login (welcome animation) the Dashboard fades in */}
+        <Stack.Screen name="dashboard" options={{ animation: "fade" }} />
+      </Stack>
       {blocked ? (
         <View style={StyleSheet.absoluteFill}>
           <LoadingScreen />
