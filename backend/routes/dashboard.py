@@ -127,6 +127,7 @@ def get_dashboard():
                 'date': o['order_date'].strftime('%d %b %Y') if o['order_date'] else '',
                 'expected_delivery_date': o['expected_delivery_date'].strftime('%d %b %Y') if o['expected_delivery_date'] else None,
                 'price': f"₹{int(o['order_total']):,}",
+                'amount': float(o['order_total'] or 0),
                 'status': o['status'],
                 'delivery': delivery,
             })

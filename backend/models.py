@@ -1418,7 +1418,7 @@ class PurchaseOrder:
         return db.execute_query("""
             SELECT psd.variant_id, po.po_id, po.order_date, po.expected_delivery_date, po.delivered_date, po.status,
                    po.payment_status, ven.vendor_name, u.username AS created_by_name,
-                   SUM(psd.qty) AS qty, SUM(psd.qty * psd.cost) AS amount,
+                   SUM(psd.qty) AS qty, SUM(psd.amount) AS amount,
                    STRING_AGG(s.size_system || ' ' || s.size_group || ' ' || s.size_value || ' x' || psd.qty::int,
                               ', ' ORDER BY s.sort_order, s.size_id) AS sizes
             FROM po_size_detail psd

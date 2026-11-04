@@ -104,7 +104,9 @@ def _build_order_display(o):
         'image': o.get('product_image'),
         'date': o['order_date'].strftime('%d %b %Y') if o['order_date'] else '',
         'expected_delivery_date': o['expected_delivery_date'].strftime('%d %b %Y') if o.get('expected_delivery_date') else None,
-        'price': f"₹{int(o['order_total']):,}",
+        'price': f"₹{int(o['order_total']):,}",   # the app's whole-rupee text (unchanged)
+        # The exact order total (cost x qty plus GST, to the paisa) for the admin panel, so lists add up to the cent.
+        'amount': float(o['order_total'] or 0),
         'status': o['status'],
         'payment_status': o.get('payment_status', 'unpaid'),
         'delivery': delivery,
@@ -132,7 +134,9 @@ def get_all_orders():
     (Vendor Workspace's own Orders entry).
 
     Optional query params:
-      deliveryStatus = all | pending | delayed | delivered
+      deliveryStatus = all | pending | delayed | delivered | open
+        ('open' = every placed order that is not delivered yet: pending and delayed together,
+        the same set the dashboard counts as "pending orders")
         (matches PurchaseOrder.compute_delivery_state's 'state' - computed
         fresh from expected_delivery_date vs today, not a stored value)
       dateFrom = YYYY-MM-DD, dateTo = YYYY-MM-DD
@@ -169,7 +173,9 @@ def get_all_orders():
 
     orders = [_build_order_display(o) for o in orders_raw]
 
-    if delivery_status != 'all':
+    if delivery_status == 'open':
+        orders = [o for o in orders if o['delivery']['state'] in ('pending', 'delayed')]
+    elif delivery_status != 'all':
         orders = [o for o in orders if o['delivery']['state'] == delivery_status]
 
     return success_response(orders, "All orders fetched successfully")

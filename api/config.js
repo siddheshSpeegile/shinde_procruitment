@@ -22,7 +22,7 @@ import { clearSession, getSession } from "./session";
 // When using `adb reverse tcp:5000 tcp:5000` (USB-connected Android device),
 // the phone treats your PC's port 5000 as its own localhost - use this
 // instead of the LAN IP in that case.
-const LOCAL_IP = "10.138.168.172";
+const LOCAL_IP = "10.200.119.172";
 
 // EXPO_PUBLIC_* env vars are inlined by Expo at build/start time (see
 // docker-compose.yml's `frontend` service, or a local .env file) - this
