@@ -4,8 +4,8 @@ import { cartApi, draftsApi, masterApi, ordersApi, productsApi, suggestionsApi, 
 import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { Field, Modal, PageHeader, Spinner, Swatch } from '../components/ui';
-import { inr, isoDate, num, timeAgo, today, variantLabel } from '../lib/format';
+import { Field, Modal, PageHeader, Spinner, StatusPill, Swatch } from '../components/ui';
+import { fmtDate, inr, inr2, isoDate, lineAmount, num, sumAmount, sumBase, timeAgo, today, variantLabel } from '../lib/format';
 import { groupTitle } from '../lib/sizes';
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -51,7 +51,7 @@ function ProductBlock({ line, products, gstRates, onChange, onRemove }) {
                 <button className="btn btn-sm ml-auto" onClick={() => onChange({ ...line, variants: line.variants.filter((_, i) => i !== vi) })}>Remove variant</button></div>
               <div className="overflow-x-auto">
               <table className="w-full border-collapse">
-                <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
+                <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount incl. GST'].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
                 <tbody>{v.sizes.map((s, si) => (
                   <Fragment key={s.size_id}>
                     {groupTitle(s) && (si === 0 || groupTitle(v.sizes[si - 1]) !== groupTitle(s)) && (
@@ -70,7 +70,7 @@ function ProductBlock({ line, products, gstRates, onChange, onRemove }) {
                       ) : (
                         <td key={k} className="td"><input className="input h-8 w-24" type="number" min="0" step={k === 'qty' ? '1' : 'any'} aria-label={`${k} for size ${s.size_label || s.size_value}`} value={s[k]} onChange={(e) => setCell(vi, si, k, e.target.value)} /></td>
                       ))}
-                      <td className="td">{inr(num(s.qty) * num(s.cost))}</td>
+                      <td className="td">{inr2(lineAmount(s))}</td>
                     </tr>
                   </Fragment>))}</tbody>
               </table>
@@ -138,6 +138,7 @@ export default function CreateOrder() {
   const [lines, setLines] = useState([]);
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [dupes, setDupes] = useState(null); // variants of this order that were already ordered before (asks the person first)
   const products = useAsync(() => productsApi.listByVendor(vendorId), [vendorId], { enabled: !!vendorId });
   const existing = useAsync(() => loadForEdit(id), [id], { enabled: editing });
   const resubmit = editing && existing.data?.po.status === 'rejected';
@@ -233,7 +234,9 @@ export default function CreateOrder() {
   const all = lines.flatMap((l) => l.variants.flatMap((v) => v.sizes));
   const filled = all.filter((s) => num(s.qty) > 0);
   const totalQty = filled.reduce((a, s) => a + num(s.qty), 0);
-  const total = filled.reduce((a, s) => a + num(s.qty) * num(s.cost), 0);
+  const total = sumAmount(filled);
+  const subtotal = sumBase(filled);
+  const gstTotal = Math.round((total - subtotal) * 100) / 100;
 
   function validate() {
     const e = [];
@@ -249,7 +252,7 @@ export default function CreateOrder() {
     return e;
   }
 
-  async function submit() {
+  async function submit(skipCheck = false) {
     const e = validate();
     setErrors(e);
     if (e.length) return;
@@ -268,6 +271,13 @@ export default function CreateOrder() {
         leaving.current = true;
         nav(`/purchase-orders/${id}`);
       } else {
+        // Before placing it: was any of these variants ordered in another purchase order already?
+        if (!skipCheck) {
+          let found = [];
+          try { found = await ordersApi.checkDuplicates(products.flatMap((p) => p.variants.map((v) => v.variant_id))); }
+          catch { /* if the earlier orders cannot be checked, the order is still allowed */ }
+          if (found.length) { setDupes(found); return; }
+        }
         const r = await ordersApi.create({ vendor_id: Number(vendorId), order_date: orderDate, expected_delivery_date: expected, remarks, products });
         toast.success(r.status === 'pending_approval' ? `PO-${r.po_id} submitted for approval.` : `PO-${r.po_id} created.`);
         if (draftId) draftsApi.remove(draftId).catch(() => { /* the order is placed; a leftover draft can be deleted by hand */ });
@@ -296,6 +306,34 @@ export default function CreateOrder() {
           You are working on a saved draft{draftTime ? ` (saved ${timeAgo(draftTime)})` : ''}. Submitting the order removes the draft.
         </div>
       )}
+      <Modal open={!!dupes} title="Already in another order" width={680} onClose={() => setDupes(null)}
+        footer={<><button className="btn" onClick={() => setDupes(null)}>Cancel, do not order</button><button className="btn btn-primary" onClick={() => { setDupes(null); submit(true); }}>Reorder anyway</button></>}>
+        <div className="text-muted mb-3">
+          {dupes && dupes.length === 1 ? 'One item in this order is' : `${dupes?.length} items in this order are`} already in another purchase order that has not been delivered yet. Check the details, then decide whether to order again or cancel.
+        </div>
+        <div className="max-h-[52vh] overflow-y-auto grid gap-3">
+          {(dupes || []).map((d) => (
+            <div key={d.variant_id} className="rounded-md border border-line">
+              <div className="px-3 py-2 bg-surface2 border-b border-line">
+                <div className="font-medium">{d.product_name} <span className="font-mono text-xs text-muted">{d.product_code}</span></div>
+                <div className="text-xs text-muted">{d.variant} · in {d.total_orders} open {d.total_orders === 1 ? 'order' : 'orders'}</div>
+              </div>
+              {d.orders.map((o) => (
+                <div key={o.po_id} className="px-3 py-2 border-b border-line last:border-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Link to={`/purchase-orders/${o.po_id}`} target="_blank" rel="noreferrer" className="font-mono font-medium">PO-{o.po_id}</Link>
+                    <span>{fmtDate(o.order_date)}</span>
+                    <StatusPill value={o.status} />
+                    <span className="ml-auto font-medium">{o.quantity} pcs · {inr(o.amount)}</span>
+                  </div>
+                  <div className="text-xs text-muted mt-0.5">{o.supplier}{o.created_by ? ` · by ${o.created_by}` : ''} · {o.sizes}</div>
+                </div>
+              ))}
+              {d.total_orders > d.orders.length && <div className="px-3 py-1.5 text-xs text-muted">and {d.total_orders - d.orders.length} more open {d.total_orders - d.orders.length === 1 ? 'order' : 'orders'}</div>}
+            </div>
+          ))}
+        </div>
+      </Modal>
       <Modal open={blocker.state === 'blocked'} title="Save this order as a draft?" onClose={() => blocker.state === 'blocked' && blocker.reset()}
         footer={<>
           <button className="btn" onClick={() => blocker.reset()}>Keep editing</button>
@@ -341,9 +379,11 @@ export default function CreateOrder() {
           <div className="flex justify-between"><span className="text-muted">Products</span><span>{lines.filter((l) => l.productId).length}</span></div>
           <div className="flex justify-between"><span className="text-muted">Sizes ordered</span><span>{filled.length}</span></div>
           <div className="flex justify-between"><span className="text-muted">Total quantity</span><span>{totalQty}</span></div>
-          <div className="flex justify-between font-semibold text-base mt-2 pt-2 border-t border-line"><span>Order value</span><span>{inr(total)}</span></div>
+          <div className="flex justify-between"><span className="text-muted">Sub-total (before GST)</span><span>{inr2(subtotal)}</span></div>
+          <div className="flex justify-between"><span className="text-muted">GST</span><span>{inr2(gstTotal)}</span></div>
+          <div className="flex justify-between font-semibold text-base mt-2 pt-2 border-t border-line"><span>Order value</span><span>{inr2(total)}</span></div>
           {errors.length > 0 && <ul role="alert" className="text-bad text-xs mt-3 pl-4 mb-0">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-          <button className="btn btn-primary w-full mt-4" disabled={busy} onClick={submit}>
+          <button className="btn btn-primary w-full mt-4" disabled={busy} onClick={() => submit()}>
             {busy ? 'Saving…' : editing ? (resubmit ? 'Resubmit for approval' : 'Save changes') : canApprove ? 'Create order' : 'Submit for approval'}
           </button>
           {!editing && (

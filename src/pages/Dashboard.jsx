@@ -4,14 +4,14 @@ import gsap from 'gsap';
 import { dashboardApi } from '../api/endpoints';
 import { useAsync } from '../hooks/useAsync';
 import { DataTable, ErrorState, PageHeader, Pill, Spinner, Thumb } from '../components/ui';
-import { fmtDate, num } from '../lib/format';
+import { fmtDate, inr2, num } from '../lib/format';
 
 function Kpi({ label, value, money, hint }) {
   const ref = useRef(null);
   useEffect(() => {
     const o = { v: 0 };
     const t = gsap.to(o, { v: num(value), duration: 0.9, ease: 'power2.out', onUpdate: () => {
-      if (ref.current) ref.current.textContent = (money ? '₹' : '') + Math.round(o.v).toLocaleString('en-IN');
+      if (ref.current) ref.current.textContent = money ? '₹' + o.v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(o.v).toLocaleString('en-IN');
     } });
     return () => t.kill();
   }, [value, money]);
@@ -35,7 +35,7 @@ export default function Dashboard() {
     <>
       <PageHeader title="Dashboard" sub="Counts cover orders that are not yet delivered." />
       <div className="grid gap-3.5 mb-5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))' }}>
-        <Kpi label="Order value pending" value={d.order_amount} money hint="Orders not delivered" />
+        <Kpi label="Order value pending" value={d.order_amount} money hint="Not delivered, incl. GST" />
         <Kpi label="Pending orders" value={d.orders_count} hint="Not delivered" />
         <Kpi label="Suppliers with pending orders" value={d.vendors_count} />
       </div>
@@ -47,7 +47,7 @@ export default function Dashboard() {
           { header: 'Supplier', key: 'brand' },
           { header: 'Order date', render: (o) => o.date },
           { header: 'Expected', render: (o) => o.expected_delivery_date || '-' },
-          { header: 'Amount', key: 'price', className: 'text-right' },
+          { header: 'Amount (incl. GST)', render: (o) => inr2(o.amount ?? 0), className: 'text-right' },
           { header: 'Delivery', render: (o) => <Pill tone={o.delivery.state === 'delayed' ? 'bad' : o.delivery.state === 'delivered' ? 'ok' : 'info'}>{o.delivery.message}</Pill> },
         ]} />
     </>

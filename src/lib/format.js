@@ -2,6 +2,14 @@
 export const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 // Money with always two decimals (payment amounts).
 export const inr2 = (v) => '₹' + num(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Order money. One rule everywhere: a line is cost x qty plus its GST, rounded to the paisa, and an order is the sum of
+// its lines. This is exactly what the database stores as each line's amount, so the dashboard, the lists, the order page,
+// the printed sheet and the order form always agree.
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+export const lineBase = (s) => round2(num(s.cost) * num(s.qty));
+export const lineAmount = (s) => round2(num(s.cost) * num(s.qty) * (1 + num(s.gst) / 100));
+export const sumBase = (rows) => round2((rows || []).reduce((a, s) => a + lineBase(s), 0));
+export const sumAmount = (rows) => round2((rows || []).reduce((a, s) => a + lineAmount(s), 0));
 export const inr = (v) => '₹' + num(v).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 export function fmtDate(v) {

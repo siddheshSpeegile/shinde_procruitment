@@ -5,7 +5,7 @@ import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { Can, Confirm, ErrorState, Field, Modal, PageHeader, Pill, Spinner, StatusPill, Thumb } from '../components/ui';
-import { downloadCsv, fmtDate, inr, inr2, isoDate, num, today } from '../lib/format';
+import { downloadCsv, fmtDate, inr, inr2, isoDate, lineAmount, num, sumAmount, sumBase, today } from '../lib/format';
 import { groupSizes, sizeLabel } from '../lib/sizes';
 import OrderSheet from '../components/OrderSheet';
 
@@ -70,7 +70,9 @@ export default function OrderDetail() {
     const pid = v?.product_id ?? (po.products.length === 1 ? po.products[0].product_id : 'unknown');
     (groups[pid] ||= []).push({ vid, v, rows });
   });
-  const total = (po.sizes || []).reduce((a, s) => a + num(s.cost) * num(s.qty), 0);
+  const total = sumAmount(po.sizes);
+  const subtotal = sumBase(po.sizes);
+  const gstTotal = Math.round((total - subtotal) * 100) / 100;
   const qty = (po.sizes || []).reduce((a, s) => a + num(s.qty), 0);
   const st = stateOf(po);
   const waiting = po.status === 'pending_approval';
@@ -101,10 +103,10 @@ export default function OrderDetail() {
   }
 
   function csv() {
-    const out = [['PO', 'Supplier', 'Product code', 'Product', 'Variant', 'Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount']];
+    const out = [['PO', 'Supplier', 'Product code', 'Product', 'Variant', 'Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount incl. GST']];
     Object.entries(groups).forEach(([pid, vs]) => {
       const p = po.products.find((x) => String(x.product_id) === String(pid));
-      vs.forEach(({ v, rows }) => rows.forEach((s) => out.push([`PO-${po.po_id}`, vendor?.vendor_name, p?.v_prod_id, p?.product_name, v?.label, sizeLabel(s), s.qty, s.cost, s.mrp, s.gst, num(s.cost) * num(s.qty)])));
+      vs.forEach(({ v, rows }) => rows.forEach((s) => out.push([`PO-${po.po_id}`, vendor?.vendor_name, p?.v_prod_id, p?.product_name, v?.label, sizeLabel(s), s.qty, s.cost, s.mrp, s.gst, lineAmount(s)])));
     });
     downloadCsv(`PO-${po.po_id}.csv`, out);
   }
@@ -148,7 +150,7 @@ export default function OrderDetail() {
       )}
 
       <div className="card p-4 mb-4 no-print grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
-        {[['Supplier', vendor?.vendor_name], ['Order date', fmtDate(po.order_date)], ['Expected delivery', fmtDate(po.expected_delivery_date)], ['Quantity', qty], ['Order value', inr(total)], ['Remarks', po.remarks || '-'], ['Created by', po.created_by_name || '-'], ...(po.reviewed_by_name ? [['Reviewed by', po.reviewed_by_name]] : [])].map(([k, v]) => (
+        {[['Supplier', vendor?.vendor_name], ['Order date', fmtDate(po.order_date)], ['Expected delivery', fmtDate(po.expected_delivery_date)], ['Quantity', qty], ['Sub-total (before GST)', inr2(subtotal)], ['GST', inr2(gstTotal)], ['Order value (incl. GST)', inr2(total)], ['Remarks', po.remarks || '-'], ['Created by', po.created_by_name || '-'], ...(po.reviewed_by_name ? [['Reviewed by', po.reviewed_by_name]] : [])].map(([k, v]) => (
           <div key={k}><div className="text-xs text-muted">{k}</div><div className="font-medium">{v}</div></div>
         ))}
         <div><div className="text-xs text-muted">Status</div><StatusPill value={po.status} /></div>
@@ -163,7 +165,7 @@ export default function OrderDetail() {
             {[['Paid on', fmtDate(po.payment_date)], ['Mode', po.payment_mode], ['Amount paid', inr2(po.payment_amount)], ['Reference', po.payment_reference], ['Recorded by', po.paid_by_name], ['Remarks', po.payment_remarks]]
               .filter(([, v]) => v).map(([k, v]) => <div key={k}><div className="text-xs text-muted">{k}</div><div className="font-medium break-words">{v}</div></div>)}
           </div>
-          {po.payment_amount != null && Math.abs(num(po.payment_amount) - total) > 0.005 && <div className="text-xs text-muted mt-2">The amount paid is different from the order value of {inr(total)}.</div>}
+          {po.payment_amount != null && Math.abs(num(po.payment_amount) - total) > 0.005 && <div className="text-xs text-muted mt-2">The amount paid is different from the order value of {inr2(total)}.</div>}
         </div>
       )}
 
@@ -180,14 +182,14 @@ export default function OrderDetail() {
                 <div className="mb-2 font-medium">{v?.label || 'Variant not recorded'}</div>
                 <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
-                  <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h) => <th key={h} className="th text-right first:text-left">{h}</th>)}</tr></thead>
+                  <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount incl. GST'].map((h) => <th key={h} className="th text-right first:text-left">{h}</th>)}</tr></thead>
                   <tbody>{groupSizes(rows).map((g) => (
                     <Fragment key={g.title || 'sizes'}>
                       {g.title && <tr><td colSpan={6} className="td text-xs font-semibold uppercase tracking-wide text-muted bg-surface2">{g.title}</td></tr>}
                       {g.items.map((s) => (
                         <tr key={s.po_size_id ?? `${vid}-${s.size_id}`}>
                           <td className="td">{s.size_value}</td><td className="td text-right">{num(s.qty)}</td><td className="td text-right">{inr(s.cost)}</td>
-                          <td className="td text-right">{inr(s.mrp)}</td><td className="td text-right">{num(s.gst)}</td><td className="td text-right">{inr(num(s.cost) * num(s.qty))}</td>
+                          <td className="td text-right">{inr(s.mrp)}</td><td className="td text-right">{num(s.gst)}</td><td className="td text-right">{inr2(lineAmount(s))}</td>
                         </tr>))}
                     </Fragment>))}</tbody>
                 </table>
@@ -206,13 +208,13 @@ export default function OrderDetail() {
             <select className="input" {...payField('mode')}><option value="">Select how it was paid</option>{PAY_MODES.map((m) => <option key={m}>{m}</option>)}</select>
           </Field>
         </div>
-        <Field label="Amount paid (Rs)" required error={payErr.amount} hint={`Order value ${inr(total)}`}><input className="input" inputMode="decimal" {...payField('amount')} /></Field>
+        <Field label="Amount paid (Rs)" required error={payErr.amount} hint={`Order value incl. GST ${inr2(total)}`}><input className="input" inputMode="decimal" {...payField('amount')} /></Field>
         <Field label={pay.mode === 'Cash' ? 'Reference (optional)' : pay.mode === 'Cheque' ? 'Cheque number' : 'Transaction or UTR number'} required={!!pay.mode && pay.mode !== 'Cash'} error={payErr.reference}>
           <input className="input" maxLength={100} {...payField('reference')} />
         </Field>
         <Field label="Remarks"><textarea className="input" rows={2} maxLength={500} {...payField('remarks')} placeholder="Anything worth remembering about this payment" /></Field>
       </Modal>
-      <div className="print-only"><OrderSheet po={po} vendor={vendor} groups={groups} qty={qty} total={total} deliveryText={st.text} /></div>
+      <div className="print-only"><OrderSheet po={po} vendor={vendor} groups={groups} qty={qty} total={total} subtotal={subtotal} gstTotal={gstTotal} deliveryText={st.text} /></div>
       <Confirm open={dlg === 'deliver'} title="Mark as delivered" body={`PO-${po.po_id} will be stamped as delivered now.`} confirmLabel="Mark delivered" busy={busy}
         onConfirm={() => run(() => ordersApi.markDelivered(po.po_id), 'Order marked as delivered.')} onClose={() => setDlg(null)} />
       <Confirm open={dlg === 'approve'} title="Approve and place order" body={`PO-${po.po_id} will be placed with ${vendor?.vendor_name || 'the supplier'} and ${po.created_by_name || 'the person who created it'} will be notified.`} confirmLabel="Approve and place" busy={busy}

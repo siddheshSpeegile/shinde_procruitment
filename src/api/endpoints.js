@@ -60,6 +60,8 @@ export const variantsApi = {
 };
 
 export const ordersApi = {
+  // Which of these variants were already ordered in another purchase order? (a warning only; an empty list = none)
+  checkDuplicates: (variant_ids, exclude_po_id) => api.post('/orders/check-duplicates', { variant_ids, ...(exclude_po_id ? { exclude_po_id } : {}) }),
   list: (params) => api.get('/orders/all', params),
   get: (id) => api.get(`/orders/${id}`),
   // withUser adds the signed-in user's id, so the order records and the notifications say who did it.

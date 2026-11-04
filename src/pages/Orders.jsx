@@ -5,7 +5,7 @@ import { useAsync } from '../hooks/useAsync';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Can, Confirm, DataTable, PageHeader, Pill, StatusPill, Thumb } from '../components/ui';
-import { timeAgo } from '../lib/format';
+import { inr2, timeAgo } from '../lib/format';
 
 export const deliveryTone = (s) => (s === 'delayed' || s === 'rejected' ? 'bad' : s === 'awaiting_approval' ? 'warn' : s === 'delivered' ? 'ok' : 'info');
 
@@ -59,6 +59,11 @@ export default function Orders() {
       <PageHeader title="Purchase Orders" sub="Filter by supplier, delivery status and expected delivery date."
         actions={<Can perm="purchase_order.create"><Link to="/cut-order/new" className="btn btn-primary no-underline">New Cut Order</Link></Can>} />
       <Drafts />
+      {!loading && !error && (
+        <div className="text-xs text-muted mb-2" role="status">
+          {rows.length} {rows.length === 1 ? 'order' : 'orders'} in this list, total <b className="text-ink">{inr2(rows.reduce((a, o) => a + (o.amount || 0), 0))}</b> (cost x quantity plus GST). "Pending (not delivered)" is the same set the Dashboard counts.
+        </div>
+      )}
       <DataTable rows={rows} loading={loading} error={error} onRetry={reload} emptyTitle="No orders match" emptyHint="Change the filters or create a new order."
         searchText={(o) => `${o.po} ${o.brand}`}
         toolbar={<>
@@ -66,7 +71,7 @@ export default function Orders() {
             <option value="">All suppliers</option>{(vendors.data || []).map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
           </select>
           <select className="input max-w-[150px]" aria-label="Delivery" value={f.deliveryStatus} onChange={set('deliveryStatus')}>
-            <option value="all">All delivery</option><option value="pending">Pending</option><option value="delayed">Delayed</option><option value="delivered">Delivered</option><option value="awaiting_approval">Waiting for approval</option><option value="rejected">Rejected</option>
+            <option value="all">All delivery</option><option value="open">Pending (not delivered)</option><option value="pending">On time only</option><option value="delayed">Delayed only</option><option value="delivered">Delivered</option><option value="awaiting_approval">Waiting for approval</option><option value="rejected">Rejected</option>
           </select>
           <label className="flex items-center gap-1 text-xs text-muted">Due from <input type="date" className="input w-[140px]" value={f.dateFrom} onChange={set('dateFrom')} /></label>
           <label className="flex items-center gap-1 text-xs text-muted">to <input type="date" className="input w-[140px]" value={f.dateTo} onChange={set('dateTo')} /></label>
@@ -78,7 +83,7 @@ export default function Orders() {
           { header: 'Supplier', key: 'brand' },
           { header: 'Order date', key: 'date' },
           { header: 'Expected', render: (o) => o.expected_delivery_date || '-' },
-          { header: 'Amount', key: 'price', className: 'text-right' },
+          { header: 'Amount (incl. GST)', render: (o) => inr2(o.amount ?? 0), className: 'text-right' },
           { header: 'Status', render: (o) => <StatusPill value={o.status} /> },
           { header: 'Delivery', render: (o) => <Pill tone={deliveryTone(o.delivery.state)}>{o.delivery.message}</Pill> },
           { header: 'Payment', render: (o) => <StatusPill value={o.payment_status} /> },

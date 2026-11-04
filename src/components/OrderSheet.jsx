@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { resolveImage } from '../config';
-import { fmtDate, inr, inr2, num } from '../lib/format';
+import { fmtDate, inr, inr2, lineAmount, num, sumAmount } from '../lib/format';
 import { groupSizes } from '../lib/sizes';
 
 // The printed purchase order (Print button on the order page). It is hidden on screen and shown only when printing,
@@ -19,7 +19,7 @@ function Info({ title, rows }) {
   );
 }
 
-export default function OrderSheet({ po, vendor, groups, qty, total, deliveryText }) {
+export default function OrderSheet({ po, vendor, groups, qty, total, subtotal, gstTotal, deliveryText }) {
   const paid = po.payment_status === 'paid';
   const supplier = vendor || {};
   return (
@@ -53,19 +53,19 @@ export default function OrderSheet({ po, vendor, groups, qty, total, deliveryTex
           const p = po.products.find((x) => String(x.product_id) === String(pid));
           const rowsOf = vs.flatMap((x) => x.rows);
           const pQty = rowsOf.reduce((a, s) => a + num(s.qty), 0);
-          const pAmt = rowsOf.reduce((a, s) => a + num(s.cost) * num(s.qty), 0);
+          const pAmt = sumAmount(rowsOf);
           return (
             <section key={pid} className="os-product">
               <div className="os-product-head">
                 {p?.photo_url ? <img src={resolveImage(p.photo_url)} alt="" className="os-thumb" /> : <span className="os-thumb" />}
                 <div className="os-product-name"><b>{p?.product_name || 'Product'}</b><span>{p?.v_prod_id}</span></div>
-                <div className="os-product-total">{pQty} pcs · {inr(pAmt)}</div>
+                <div className="os-product-total">{pQty} pcs · {inr2(pAmt)}</div>
               </div>
               {vs.map(({ vid, v, rows }) => (
                 <div key={vid} className="os-variant">
                   <div className="os-variant-name">{v?.label || 'Variant not recorded'}</div>
                   <table className="os-table">
-                    <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount'].map((h, i) => <th key={h} className={i ? 'r' : ''}>{h}</th>)}</tr></thead>
+                    <thead><tr>{['Size', 'Qty', 'Cost', 'MRP', 'GST %', 'Amount incl. GST'].map((h, i) => <th key={h} className={i ? 'r' : ''}>{h}</th>)}</tr></thead>
                     <tbody>
                       {groupSizes(rows).map((g) => (
                         <Fragment key={g.title || 'sizes'}>
@@ -73,7 +73,7 @@ export default function OrderSheet({ po, vendor, groups, qty, total, deliveryTex
                           {g.items.map((s) => (
                             <tr key={s.po_size_id ?? `${vid}-${s.size_id}`}>
                               <td>{s.size_value}</td><td className="r">{num(s.qty)}</td><td className="r">{inr(s.cost)}</td>
-                              <td className="r">{inr(s.mrp)}</td><td className="r">{num(s.gst)}</td><td className="r">{inr(num(s.cost) * num(s.qty))}</td>
+                              <td className="r">{inr(s.mrp)}</td><td className="r">{num(s.gst)}</td><td className="r">{inr2(lineAmount(s))}</td>
                             </tr>
                           ))}
                         </Fragment>
@@ -99,7 +99,9 @@ export default function OrderSheet({ po, vendor, groups, qty, total, deliveryTex
           </div>
           <div className="os-total">
             <div><span>Total quantity</span><b>{qty} pcs</b></div>
-            <div className="os-grand"><span>Order value</span><b>{inr(total)}</b></div>
+            <div><span>Sub-total (before GST)</span><b>{inr2(subtotal)}</b></div>
+            <div><span>GST</span><b>{inr2(gstTotal)}</b></div>
+            <div className="os-grand"><span>Order value</span><b>{inr2(total)}</b></div>
           </div>
         </div>
 
